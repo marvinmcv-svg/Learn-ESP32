@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://learn-arduino-red.vercel.app/sitemap.xml
