@@ -27,14 +27,14 @@ export const LESSONS = [
     body: `
 <p>Every Arduino-style program has two functions. <code>setup()</code> runs once when the board powers on or resets. <code>loop()</code> then runs again and again, forever, as fast as it can.</p>
 <p>The quickest way to see what your code is doing is the <strong>serial port</strong>: the USB cable carries text from the ESP32 back to your computer. <code>Serial.begin(115200)</code> opens the line at 115&nbsp;200 bits per second, and <code>Serial.println()</code> sends a line of text.</p>
-<h3>What the code does</h3>
+<h2>What the code does</h2>
 <ul>
 <li>Opens the serial port once in <code>setup()</code>.</li>
 <li>Every second, prints a counter and how long the board has been running with <code>millis()</code>.</li>
 </ul>
 <p>Press <kbd>Run</kbd> and watch the <em>Serial Monitor</em> fill up.</p>
 <div class="tip"><strong>On a real board:</strong> set the Serial Monitor in the Arduino IDE to <code>115200 baud</code>. If you see garbage characters, the speeds do not match.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Change <code>1000</code> to <code>250</code>. What happens to the counter? Then try printing your name.</p>`,
     code: `// Lesson 1: say hello over USB serial
 int count = 0;
@@ -72,7 +72,7 @@ void loop() {
 </ol>
 <p>Find the LED next to the USB port in the 3D view. Drag to orbit, scroll to zoom.</p>
 <div class="tip"><strong>Board differences:</strong> not every board has its LED on GPIO 2. Some clones use GPIO 5 or have no user LED at all. <code>LED_BUILTIN</code> is defined for boards that have one.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Make the LED flash a heartbeat: two quick blinks, then a long pause.</p>`,
     code: `// Lesson 2: blink the on-board LED
 const int LED = 2;
@@ -100,13 +100,13 @@ void loop() {
     body: `
 <p>Time to build something. An LED only lets current flow one way: its long leg (the <em>anode</em>) goes towards the GPIO pin, the short leg (the <em>cathode</em>) towards ground.</p>
 <p>An LED by itself would draw too much current, so we put a <strong>220&nbsp;Ω resistor</strong> in series. With 3.3&nbsp;V from the pin and roughly 2&nbsp;V dropped by a red LED, that limits the current to about (3.3&nbsp;−&nbsp;2)&nbsp;/&nbsp;220&nbsp;≈&nbsp;6&nbsp;mA. Bright enough, and kind to the pin.</p>
-<h3>Wiring</h3>
+<h2>Wiring</h2>
 <ul>
 <li>GPIO 26 → 220&nbsp;Ω resistor → LED anode (long leg)</li>
 <li>LED cathode (short leg) → GND rail</li>
 </ul>
 <div class="tip"><strong>Safe pins:</strong> GPIO 6–11 are wired to the flash chip and will crash the board if you touch them. GPIO 0, 2, 12 and 15 affect boot. Pins like 25, 26, 27, 32 and 33 are good picks for outputs.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Blink <strong>SOS</strong> in Morse code: three short, three long, three short.</p>`,
     code: `// Lesson 3: an external LED on GPIO 26
 const int LED = 26;
@@ -141,14 +141,14 @@ void loop() {
     body: `
 <p>Three LEDs, three pins. Real traffic lights follow a fixed sequence, which makes them a perfect first <em>state machine</em>.</p>
 <p>Instead of repeating three <code>digitalWrite</code> calls for every step, this sketch defines a helper, <code>show(r, a, g)</code>, that sets all three lights at once. Functions keep <code>loop()</code> short and readable.</p>
-<h3>The sequence</h3>
+<h2>The sequence</h2>
 <ol>
 <li>Green for 3 seconds</li>
 <li>Amber for 1 second</li>
 <li>Red for 3 seconds</li>
 <li>Red + amber for 1 second (used in the UK and parts of Europe)</li>
 </ol>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Add a pedestrian phase: after red, flash the amber light five times quickly before going green.</p>`,
     code: `// Lesson 4: a traffic light
 const int RED = 26;
@@ -198,7 +198,7 @@ void loop() {
 </ul>
 <p>So the logic is inverted: <em>LOW means pressed</em>.</p>
 <p><strong>Click and hold the button</strong> in the 3D view (or use the control under the scene).</p>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Change <code>INPUT_PULLUP</code> to <code>INPUT</code> and run again. Watch the Serial Monitor: the floating pin flickers between 0 and 1 by itself. That is why pull-ups matter.</p>`,
     code: `// Lesson 5: a button with the internal pull-up
 const int BUTTON = 19;
@@ -241,7 +241,7 @@ void loop() {
 <p>The trick is to react to the moment the button <strong>changes</strong> from released to pressed (an <em>edge</em>), not to its current level. We remember the previous reading and compare.</p>
 <p>Real buttons also <strong>bounce</strong>: the metal contacts rattle for a few milliseconds and produce several fake presses. We ignore changes that happen within 50&nbsp;ms of the last one, using <code>millis()</code> instead of <code>delay()</code> so the loop never freezes.</p>
 <div class="tip"><strong>Why not delay()?</strong> While <code>delay()</code> runs, your sketch is deaf. Comparing timestamps from <code>millis()</code> lets one loop handle many things at once.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Count the presses and print the total over serial. Can you make every third press blink the LED three times?</p>`,
     code: `// Lesson 6: toggle an LED, with debouncing
 const int BUTTON = 19;
@@ -284,7 +284,7 @@ void loop() {
 <p>That fraction of on-time is the <strong>duty cycle</strong>. <code>analogWrite(pin, value)</code> takes a value from 0 (always off) to 255 (always on); 64 is about 25&nbsp;% brightness.</p>
 <p>This sketch ramps the value up and down in small steps for a calm breathing effect.</p>
 <div class="tip"><strong>Under the hood:</strong> the ESP32 does PWM with its <em>LEDC</em> peripheral: 16 channels with adjustable frequency and up to 16-bit resolution. <code>analogWrite()</code> picks sensible defaults for you. You will drive LEDC directly in the dimmer lesson.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Our eyes are not linear: the fade looks fast at the bottom and slow at the top. Square the brightness (<code>value * value / 255</code>) to make it look smoother.</p>`,
     code: `// Lesson 7: a breathing LED with PWM
 const int LED = 26;
@@ -322,7 +322,7 @@ void loop() {
 <p>Drag the knob in the 3D view, or use the slider, and watch the numbers change.</p>
 <div class="tip"><strong>Pick ADC1 pins:</strong> the ESP32 has two ADCs. ADC2 stops working when Wi-Fi is on, so prefer ADC1: GPIO 32–39. GPIO 34–39 are input-only, which suits sensors perfectly.</div>
 <div class="tip"><strong>Not perfectly linear:</strong> the ESP32 ADC flattens out near 0 V and 3.3 V. <code>analogReadMilliVolts()</code> applies factory calibration and is more accurate.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Print the voltage too: <code>analogReadMilliVolts(POT)</code>. Then print a bar of <code>#</code> characters whose length follows the knob.</p>`,
     code: `// Lesson 8: read a potentiometer
 const int POT = 34;
@@ -357,7 +357,7 @@ void loop() {
 <p>Now connect the two halves: read the knob, set the brightness. Every embedded project is some version of this <em>read → decide → act</em> loop.</p>
 <p>Here we talk to the ESP32's <strong>LEDC</strong> peripheral directly. <code>ledcAttach(pin, frequency, bits)</code> sets up PWM on a pin. With 12-bit resolution the duty cycle runs from 0 to 4095, exactly the range of <code>analogRead()</code>, so no <code>map()</code> is needed.</p>
 <div class="tip"><strong>Core version:</strong> <code>ledcAttach()</code> and <code>ledcWrite(pin, duty)</code> are the Arduino-ESP32 3.x API. Older 2.x code uses <code>ledcSetup()</code> and <code>ledcAttachPin()</code> with channel numbers.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Reverse the knob so turning right dims the LED. Then add a dead zone: below 5&nbsp;% the LED should be fully off.</p>`,
     code: `// Lesson 9: dimmer with LEDC PWM
 const int POT = 34;
@@ -392,9 +392,9 @@ void loop() {
 <p>A <strong>photoresistor</strong> (LDR) changes resistance with light: bright light, low resistance. Paired with a fixed 10&nbsp;kΩ resistor it forms a <em>voltage divider</em>, so more light means a higher reading on GPIO 35.</p>
 <p>Use the <strong>room light</strong> slider to dim the scene.</p>
 <p>A single threshold has a problem: near the edge, sensor noise makes the LED flicker on and off. The fix is <strong>hysteresis</strong>: switch on below one level, but only switch off again above a <em>higher</em> one.</p>
-<h3>Wiring</h3>
+<h2>Wiring</h2>
 <ul><li>3.3&nbsp;V → LDR → GPIO 35 → 10&nbsp;kΩ → GND</li></ul>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Instead of on/off, make the LED brighter the darker it gets, using <code>analogWrite()</code> and <code>map()</code>.</p>`,
     code: `// Lesson 10: a night light with hysteresis
 const int LDR = 35;
@@ -438,7 +438,7 @@ void loop() {
 <tr><th>Hz</th><td>262</td><td>294</td><td>330</td><td>349</td><td>392</td><td>440</td><td>494</td><td>523</td></tr></table>
 <p>Turn on sound with the speaker button in the toolbar.</p>
 <div class="tip"><strong>Active vs passive:</strong> an <em>active</em> buzzer has its own oscillator and only beeps at one pitch when you apply power. For melodies you need a <em>passive</em> one.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Write your own tune. A rest is just a note with frequency 0. Handle it with <code>noTone()</code>.</p>`,
     code: `// Lesson 11: a melody on a passive buzzer
 const int BUZZER = 25;
@@ -474,14 +474,14 @@ void loop() {
     body: `
 <p>A hobby <strong>servo</strong> has a motor, a gearbox and a position sensor in one box. You tell it an angle from 0° to 180° and it holds that angle.</p>
 <p>The command is a pulse sent 50 times a second: about 0.5&nbsp;ms for 0° and 2.4&nbsp;ms for 180°. The <code>ESP32Servo</code> library generates it for you with the LEDC hardware.</p>
-<h3>Wiring</h3>
+<h2>Wiring</h2>
 <ul>
 <li>Brown/black → GND</li>
 <li>Red → 5&nbsp;V (the board's <code>VIN</code> pin when powered by USB)</li>
 <li>Orange/yellow signal → GPIO 13</li>
 </ul>
 <div class="tip"><strong>Power warning:</strong> servos draw large current spikes. A small SG90 is fine from USB, but bigger servos need their own supply. Always connect the grounds together.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Make the servo move like a windshield wiper: fast one way, slowly back.</p>`,
     code: `// Lesson 12: sweep a servo
 #include <ESP32Servo.h>
@@ -524,7 +524,7 @@ void loop() {
 <p><code>map(value, fromLow, fromHigh, toLow, toHigh)</code> rescales a number from one range into another. It is the glue between almost every sensor and actuator.</p>
 <pre class="snippet">map(2048, 0, 4095, 0, 180)  →  90</pre>
 <p>Raw ADC readings jitter by a few counts, which makes the servo twitch. Averaging several readings smooths it out. Here we use a simple <em>exponential moving average</em>: each new reading nudges the smoothed value a little.</p>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Change the smoothing factor from <code>0.2</code> to <code>0.05</code>. The servo becomes silky but sluggish. Engineering is choosing the right trade-off.</p>`,
     code: `// Lesson 13: knob → servo
 #include <ESP32Servo.h>
@@ -565,7 +565,7 @@ void loop() {
 <pre class="snippet">distance_cm = duration × 0.0343 / 2</pre>
 <p>Drag the <strong>obstacle distance</strong> slider to move the wall behind the sensor.</p>
 <div class="tip"><strong>5 V caution:</strong> the classic HC-SR04 runs on 5&nbsp;V and its ECHO output is 5&nbsp;V too, more than the ESP32's 3.3&nbsp;V pins are rated for. Use a voltage divider (1&nbsp;kΩ + 2&nbsp;kΩ) on ECHO, or buy the 3.3&nbsp;V-friendly HC-SR04P.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>The third argument to <code>pulseIn</code> is a timeout. When nothing is in range it returns 0. Print "out of range" in that case instead of 0&nbsp;cm.</p>`,
     code: `// Lesson 14: HC-SR04 distance sensor
 const int TRIG = 5;
@@ -610,10 +610,10 @@ void loop() {
     body: `
 <p>This one is special to the ESP32: ten of its pins can sense <strong>touch</strong> with no extra parts. Each touch pin measures its own capacitance. Your finger adds capacitance, and <code>touchRead()</code> returns a <em>lower</em> number.</p>
 <p>Any piece of metal works as a pad: a coin, foil, a screw. Just connect it to the pin with a wire.</p>
-<p>Touch pins have names: <code>T0</code> is GPIO 4, <code>T3</code> is GPIO 15, <code>T9</code> is GPIO 32, and so on. Check the <a href="#/pinout">pinout</a> for the rest.</p>
+<p>Touch pins have names: <code>T0</code> is GPIO 4, <code>T3</code> is GPIO 15, <code>T9</code> is GPIO 32, and so on. Check the <a href="/pinout">pinout</a> for the rest.</p>
 <p><strong>Click and hold the copper pad</strong> in the 3D view to touch it.</p>
 <div class="tip"><strong>Calibrate:</strong> untouched readings vary with wire length and humidity. Print the values first, then pick a threshold roughly halfway between touched and untouched.</div>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Make a touch toggle like Lesson 6, or count how long the pad was held.</p>`,
     code: `// Lesson 15: capacitive touch
 const int LED = 26;
@@ -643,9 +643,9 @@ void loop() {
     body: `
 <p>The little SSD1306 OLED has 128&nbsp;×&nbsp;64 pixels that glow on their own, no backlight. It talks <strong>I²C</strong>: just two signal wires shared by many devices. On the ESP32 the default I²C pins are <strong>SDA&nbsp;=&nbsp;21</strong> and <strong>SCL&nbsp;=&nbsp;22</strong>.</p>
 <p>Drawing happens in two steps. Commands like <code>print()</code> and <code>drawRect()</code> change a buffer in the ESP32's memory. Nothing appears until <code>display()</code> sends the whole buffer to the screen. This avoids flicker.</p>
-<h3>Libraries</h3>
+<h2>Libraries</h2>
 <p>In the Arduino IDE install <em>Adafruit SSD1306</em> and <em>Adafruit GFX</em>. The display's I²C address is usually <code>0x3C</code>.</p>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <p>Show <code>millis() / 1000</code> as a running seconds counter. Remember: <code>clearDisplay()</code> first, <code>display()</code> last.</p>`,
     code: `// Lesson 16: text on an SSD1306 OLED
 #include <Wire.h>
@@ -696,7 +696,7 @@ void loop() {
 <li>Beep with a gap proportional to distance. Under 10&nbsp;cm, sound continuously.</li>
 </ul>
 <p>The beeping uses the same <code>millis()</code> timing pattern as the debounce lesson. Each task checks "is it my turn yet?" and returns immediately if not.</p>
-<h3>Try this</h3>
+<h2>Try this</h2>
 <ul>
 <li>Add the LED from earlier lessons as a visual warning.</li>
 <li>Draw a small car icon with <code>fillRect()</code> and <code>drawCircle()</code>.</li>
@@ -795,8 +795,11 @@ export const PLAYGROUND = {
 <tr><td>OLED (I²C)</td><td>SDA 21, SCL 22</td></tr>
 </table>
 <p>Your code is saved in this browser as you type.</p>
-<h3>Supported API</h3>
-<p><code>pinMode digitalWrite digitalRead analogRead analogReadMilliVolts analogWrite ledcAttach ledcWrite tone noTone touchRead pulseIn millis micros delay map constrain random Serial.print/println/printf</code>, <code>Servo</code> (ESP32Servo) and <code>Adafruit_SSD1306</code> text and shapes.</p>`,
+<h2>Supported API</h2>
+<p><code>pinMode digitalWrite digitalRead analogRead analogReadMilliVolts analogWrite ledcAttach ledcWrite dacWrite tone noTone touchRead pulseIn attachInterrupt millis micros delay map constrain random bitRead/bitWrite</code></p>
+<p><code>Serial</code>: <code>print/println/printf/write</code> with <code>HEX</code>, <code>BIN</code> and decimal places, plus input from the box under the monitor via <code>available read readStringUntil parseInt</code>.</p>
+<p>Language: functions and prototypes, arrays, <code>struct</code>, <code>enum</code>, <code>#define</code> macros, <code>static</code> locals, <code>String</code> methods, and real C integer maths (<code>7 / 2 == 3</code>, <code>byte</code> wraps at 256).</p>
+<p>Libraries: <code>Servo</code> (ESP32Servo) and <code>Adafruit_SSD1306</code> text and shapes. Wi-Fi and Bluetooth are not simulated yet.</p>`,
   code: `// Playground: everything is connected. Have fun!
 const int RED = 26;
 const int GREEN = 27;

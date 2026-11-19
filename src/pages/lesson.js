@@ -16,7 +16,6 @@ export function renderLesson(root, id, audio) {
   const prev = idx > 0 ? LESSONS[idx - 1] : null;
   const next = idx >= 0 && idx < LESSONS.length - 1 ? LESSONS[idx + 1] : null;
   const isPlayground = !lesson.goal;
-  document.title = `${lesson.title} · Learn ESP32`;
 
   root.innerHTML = `
   <div class="lesson">
@@ -27,13 +26,14 @@ export function renderLesson(root, id, audio) {
       ${lesson.goal ? `<div class="goal" data-goal><span class="goal-icon">${icon('target')}</span><div><div class="goal-label">Goal</div><div>${lesson.goal.text}</div></div></div>` : ''}
       <div class="prose">${lesson.body}</div>
       <nav class="pager">
-        ${prev ? `<a class="pager-link" href="#/learn/${prev.id}"><span>Previous</span>${prev.title}</a>` : '<span></span>'}
-        ${next ? `<a class="pager-link next" href="#/learn/${next.id}"><span>Next</span>${next.title}</a>` : (isPlayground ? '' : '<a class="pager-link next" href="#/playground"><span>Finished?</span>Open the playground</a>')}
+        ${prev ? `<a class="pager-link" href="/learn/${prev.id}"><span>Previous</span>${prev.title}</a>` : '<span></span>'}
+        ${next ? `<a class="pager-link next" href="/learn/${next.id}"><span>Next</span>${next.title}</a>` : (isPlayground ? '' : '<a class="pager-link next" href="/playground"><span>Finished?</span>Open the playground</a>')}
       </nav>
     </article>
     <section class="bench">
       <div class="stage-wrap">
         <div class="stage" data-stage></div>
+        <p class="sr-only" data-bench-desc aria-live="polite"></p>
         <div class="stage-hud">
           <span class="status" data-status><i></i><b>Stopped</b></span>
           <button class="icon-btn" data-view title="Reset view" aria-label="Reset view">${icon('focus')}</button>
@@ -54,6 +54,11 @@ export function renderLesson(root, id, audio) {
         <div class="pane serial-pane">
           <div class="pane-head"><span>Serial Monitor <span class="muted">115200 baud</span></span><button class="link-btn" data-clear>Clear</button></div>
           <pre class="serial" data-serial aria-live="polite"></pre>
+          <form class="serial-send" data-send>
+            <label class="sr-only" for="serial-in">Send to the ESP32</label>
+            <input id="serial-in" autocomplete="off" spellcheck="false" placeholder="Send text to Serial (Enter)…" />
+            <button class="btn" type="submit">Send</button>
+          </form>
         </div>
       </div>
     </section>
@@ -156,7 +161,7 @@ export function renderLesson(root, id, audio) {
       clearInterval(goalTimer); goalTimer = null;
       goalEl?.classList.add('done');
       if (progress.markDone(lesson.id)) {
-        toast(`Goal complete: ${lesson.title}`, next ? { href: `#/learn/${next.id}`, label: 'Next lesson' } : null);
+        toast(`Goal complete: ${lesson.title}`, next ? { href: `/learn/${next.id}`, label: 'Next lesson' } : null);
       }
     }
   };
@@ -168,7 +173,14 @@ export function renderLesson(root, id, audio) {
     bindCircuit(lesson.parts, hw, store);
     serial = ''; pending = '';
     serialEl.textContent = '';
-    const current = new Sketch(editor.value, { hw, onSerial, audio });
+    editor.markError(null);
+    let current;
+    try {
+      current = new Sketch(editor.value, { hw, onSerial, audio });
+    } catch (err) {
+      systemMsg(`Compile error: ${err.message}`, 'error');
+      return;
+    }
     sketch = current;
     setStatus(true);
     systemMsg('▸ Uploading sketch… done. Booting.', 'info');
@@ -177,8 +189,9 @@ export function renderLesson(root, id, audio) {
       await current.run();
     } catch (err) {
       if (sketch === current) {
-        systemMsg(err.compile ? err.message : `Runtime error: ${err.message}`, 'error');
-        if (err.compile) systemMsg('Tip: check for a missing semicolon, bracket or quote. Only a beginner-friendly subset of C++ runs in the simulator.', 'info');
+        systemMsg(err.message, 'error');
+        if (err.line) editor.markError(err.line);
+        if (err.compile) systemMsg('Tip: check the marked line and the one before it for a missing semicolon, bracket or quote.', 'info');
       }
     }
     if (sketch === current) { sketch = null; setStatus(false); clearInterval(goalTimer); }
@@ -201,6 +214,16 @@ export function renderLesson(root, id, audio) {
     if (editor.value !== lesson.code && !confirm('Replace your code with the original lesson code?')) return;
     editor.value = lesson.code;
     progress.clearDraft(lesson.id);
+  });
+  const sendForm = $('[data-send]');
+  sendForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = sendForm.querySelector('input');
+    if (!input.value) return;
+    if (!sketch) { systemMsg('Run the sketch first, then send it text.', 'info'); return; }
+    sketch.sendSerial(`${input.value}\n`);
+    systemMsg(`→ ${input.value}`, 'info');
+    input.value = '';
   });
   $('[data-clear]').addEventListener('click', () => { serial = ''; pending = ''; serialEl.textContent = ''; });
   const soundBtn = $('[data-sound]');
@@ -227,7 +250,36 @@ export function renderLesson(root, id, audio) {
     }
   });
 
+  // Text description of the bench for screen readers, refreshed at most once a second.
+  const descEl = $('[data-bench-desc]');
+  const describe = () => {
+    const bits = [];
+    const builtin = hw.level(2);
+    if (builtin) bits.push('On-board LED on');
+    for (const p of lesson.parts) {
+      if (p.type === 'led') {
+        const v = hw.level(p.pin);
+        bits.push(`${p.color ?? ''} LED on GPIO ${p.pin} ${v === 0 ? 'off' : v === 1 ? 'on' : `at ${Math.round(v * 100)}%`}`);
+      } else if (p.type === 'buzzer') {
+        const f = hw.toneOf(p.pin);
+        bits.push(f ? `Buzzer playing ${Math.round(f)} hertz` : 'Buzzer silent');
+      } else if (p.type === 'servo' && hw.servos.has(p.pin)) {
+        bits.push(`Servo at ${Math.round(hw.servos.get(p.pin))} degrees`);
+      } else if (p.type === 'oled' && hw.oled) {
+        const text = hw.oled.textContent().trim();
+        if (text) bits.push(`OLED shows: ${text}`);
+      }
+    }
+    return bits.join('. ');
+  };
+  const descTimer = setInterval(() => {
+    if (!sketch) return;
+    const text = describe();
+    if (text !== descEl.textContent) descEl.textContent = text;
+  }, 1000);
+
   return () => {
+    clearInterval(descTimer);
     disposed = true;
     stop();
     for (const gpio of [...hw.pins.keys()]) audio.stop(gpio);

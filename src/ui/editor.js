@@ -77,8 +77,15 @@ export class Editor {
     this.sync();
   }
 
+  /** Highlights a line in the gutter and scrolls it into view; null clears it. */
   markError(line) {
     [...this.gutter.children].forEach((el, i) => el.classList.toggle('err', i + 1 === line));
+    if (!line) return;
+    const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 21;
+    const top = (line - 1) * lh;
+    if (top < this.ta.scrollTop || top > this.ta.scrollTop + this.ta.clientHeight - lh * 2) {
+      this.ta.scrollTop = Math.max(0, top - this.ta.clientHeight / 3);
+    }
   }
 
   sync() {

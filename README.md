@@ -21,12 +21,16 @@ npm run build    # production build in dist/
 
 ## How it works
 
-- `src/sim/transpile.js` rewrites the beginner subset of Arduino C++ into async JavaScript
-  (integer truncation, awaited `delay()`/`pulseIn()`, yielding loops so Stop always works).
+- `src/sim/transpile.js` rewrites the beginner subset of Arduino C++ into async JavaScript:
+  C integer semantics (truncating division, fixed-width overflow), structs, enums, macros,
+  static locals and prototypes, awaited `delay()`/`pulseIn()`, and yielding loops so Stop
+  always works. Rewrites keep line numbers, so errors point at the sketch line.
 - `src/sim/runtime.js` is the virtual ESP32: pins, PWM/LEDC, ADC, touch, tone, Servo and
   SSD1306 APIs.
 - `src/circuit.js` connects breadboard parts to pins; `src/scene/` renders them with three.js.
 - `src/lessons.js` holds all lesson content, starter code, parts and goals.
+- `scripts/prerender.mjs` runs after `vite build` and writes a static, indexable HTML page per
+  route (title, description, canonical, social card, lesson text) plus `sitemap.xml`.
 
 The simulator is simplified: timing is approximate and only the APIs used in the lessons exist.
 Not affiliated with Espressif Systems.

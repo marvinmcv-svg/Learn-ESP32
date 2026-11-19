@@ -1,7 +1,6 @@
 import { CAPS, LEFT, RIGHT, FACTS } from '../pins.js';
 
 export function renderPinout(root) {
-  document.title = 'ESP32 pinout · Learn ESP32';
   const pinHtml = (pin, side, i) => `
     <button class="pin ${side}" data-side="${side}" data-i="${i}" data-caps="${pin.caps.join(' ')}">
       <span class="pin-name">${pin.label}</span>
@@ -52,7 +51,7 @@ export function renderPinout(root) {
       el.classList.add('sel');
       const pin = (el.dataset.side === 'left' ? LEFT : RIGHT)[Number(el.dataset.i)];
       detail.innerHTML = `
-        <h3>${pin.label}${pin.gpio !== null ? ` <span class="muted">GPIO ${pin.gpio}</span>` : ''}</h3>
+        <h2>${pin.label}${pin.gpio !== null ? ` <span class="muted">GPIO ${pin.gpio}</span>` : ''}</h2>
         <p>${pin.detail}</p>
         ${pin.note ? `<p class="note">${pin.note}</p>` : ''}
         <div class="pin-caps">${pin.caps.map((c) => `<i class="cap cap-${c}">${CAPS[c]}</i>`).join('')}</div>`;

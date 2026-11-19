@@ -38,7 +38,9 @@ export class Stage {
     this.running = false;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    this.maxDpr = Math.min(window.devicePixelRatio, coarse ? 1.5 : 2);
+    renderer.setPixelRatio(this.maxDpr);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -63,7 +65,7 @@ export class Stage {
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(-6, 14, 9);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(coarse ? 1024 : 2048, coarse ? 1024 : 2048);
     sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
     sun.shadow.camera.top = 12; sun.shadow.camera.bottom = -12;
     sun.shadow.bias = -0.0004;
@@ -101,11 +103,26 @@ export class Stage {
     this.ro.observe(container);
     this.resize();
     if (interactive) this.bindPointer();
+
+    // Render on demand: only while something is moving, and never offscreen.
+    this.activeUntil = 0;
+    this.lastVersion = -1;
+    this.visible = true;
+    this.frameTimes = [];
+    this.wake = () => { this.activeUntil = performance.now() + 1500; };
+    this.controls.addEventListener('change', this.wake);
+    this.io = new IntersectionObserver(([entry]) => {
+      this.visible = entry.isIntersecting;
+      if (this.wantRunning) this.visible ? this.loop(true) : this.loop(false);
+    });
+    this.io.observe(container);
   }
 
   /** Builds the bench for a lesson's parts list. */
   setCircuit(parts, store) {
     this.store = store;
+    this.unsubscribe?.();
+    this.unsubscribe = store.subscribe(() => this.wake());
     this.world.clear();
     this.wires.clear();
     for (const l of this.labelObjs ?? []) l.removeFromParent();
@@ -159,6 +176,7 @@ export class Stage {
     }
 
     this.fit();
+    this.wake?.();
   }
 
   buildBreadboard(len, cx) {
@@ -370,6 +388,7 @@ export class Stage {
     this.renderer.domElement.style.width = `${w}px`;
     this.renderer.domElement.style.height = `${h}px`;
     this.labels.setSize(w, h);
+    this.wake?.();
     const hadAspect = this.camera.aspect;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -412,18 +431,39 @@ export class Stage {
   }
 
   start() {
-    if (this.running) return;
-    this.running = true;
-    this.renderer.setAnimationLoop(this.frame);
+    this.wantRunning = true;
+    this.wake();
+    this.loop(this.visible);
   }
 
   stop() {
-    this.running = false;
-    this.renderer.setAnimationLoop(null);
+    this.wantRunning = false;
+    this.loop(false);
+  }
+
+  loop(on) {
+    if (on === this.running) return;
+    this.running = on;
+    this.renderer.setAnimationLoop(on ? this.frame : null);
+    if (on) this.wake();
+  }
+
+  /** True while anything on the bench can still be changing. */
+  busy(now) {
+    const hw = this.hw;
+    if (this.controls.autoRotate) return true;
+    if (hw) {
+      if (hw.version !== this.lastVersion) { this.lastVersion = hw.version; this.activeUntil = now + 1500; }
+      for (const p of hw.pins.values()) if (p.tone) return true;
+    }
+    return now < this.activeUntil;
   }
 
   frame() {
-    const t = (performance.now() - this.t0) / 1000;
+    const now = performance.now();
+    if (!this.busy(now)) { this.frameTimes.length = 0; return; }
+    this.adaptQuality(now);
+    const t = (now - this.t0) / 1000;
     const hw = this.hw;
     if (hw) {
       for (const p of this.parts) p.update?.(hw, t);
@@ -445,8 +485,24 @@ export class Stage {
     this.labels.render(this.scene, this.camera);
   }
 
+  /** Drops resolution when frames are slow (low-end phones, software GL). */
+  adaptQuality(now) {
+    const f = this.frameTimes;
+    f.push(now);
+    if (f.length < 40) return;
+    const avg = (f[f.length - 1] - f[0]) / (f.length - 1);
+    f.length = 0;
+    const dpr = this.renderer.getPixelRatio();
+    let next = dpr;
+    if (avg > 30 && dpr > 1) next = Math.max(1, dpr - 0.5);
+    else if (avg < 18 && dpr < this.maxDpr) next = Math.min(this.maxDpr, dpr + 0.25);
+    if (next !== dpr) { this.renderer.setPixelRatio(next); this.resize(); }
+  }
+
   dispose() {
     this.stop();
+    this.io.disconnect();
+    this.unsubscribe?.();
     this.ro.disconnect();
     this.controls.dispose();
     this.scene.traverse((o) => {

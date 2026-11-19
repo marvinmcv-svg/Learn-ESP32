@@ -28,7 +28,6 @@ void loop() {
 }`;
 
 export function renderHome(root) {
-  document.title = 'Learn ESP32 · Interactive 3D lessons';
   const done = progress.doneCount();
   const nextLesson = LESSONS.find((l) => !progress.isDone(l.id)) ?? LESSONS[0];
   let n = 0;
@@ -40,12 +39,12 @@ export function renderHome(root) {
       <h1>Learn the <span class="accent">ESP32</span> by building it in 3D.</h1>
       <p class="lede">Write real Arduino code, press Run, and watch LEDs, servos, buzzers and an OLED respond on a virtual breadboard. ${LESSONS.length} hands-on lessons take you from your first blink to a working parking sensor.</p>
       <div class="hero-cta">
-        <a class="btn primary lg" href="#/learn/${nextLesson.id}">${done ? 'Continue' : 'Start lesson 1'} ${icon('arrow')}</a>
-        <a class="btn lg" href="#/playground">Open the playground</a>
+        <a class="btn primary lg" href="/learn/${nextLesson.id}">${done ? 'Continue' : 'Start lesson 1'} ${icon('arrow')}</a>
+        <a class="btn lg" href="/playground">Open the playground</a>
       </div>
       ${done ? `<div class="progress-line"><div class="bar"><i style="width:${(done / LESSONS.length) * 100}%"></i></div><span>${done} of ${LESSONS.length} lessons complete</span></div>` : ''}
     </div>
-    <div class="hero-stage" data-hero aria-label="Animated 3D ESP32 on a breadboard"></div>
+    <div class="hero-stage" data-hero role="img" aria-label="Animated 3D ESP32 on a breadboard running a traffic-light sketch"></div>
   </section>
 
   <section class="features">
@@ -64,7 +63,7 @@ export function renderHome(root) {
         <div class="cards">${items.map((l) => {
           n = LESSONS.indexOf(l) + 1;
           const isDone = progress.isDone(l.id);
-          return `<a class="card${isDone ? ' done' : ''}" href="#/learn/${l.id}">
+          return `<a class="card${isDone ? ' done' : ''}" href="/learn/${l.id}">
             <span class="card-num">${isDone ? icon('check') : String(n).padStart(2, '0')}</span>
             <span class="card-title">${l.title}</span>
             <span class="card-sum">${l.summary}</span>
@@ -80,7 +79,7 @@ export function renderHome(root) {
       <h2>Know your pins</h2>
       <p>Which pins are input-only? Which ones break booting? Where is touch? The interactive pinout answers it at a glance.</p>
     </div>
-    <a class="btn lg" href="#/pinout">Explore the pinout ${icon('arrow')}</a>
+    <a class="btn lg" href="/pinout">Explore the pinout ${icon('arrow')}</a>
   </section>`;
 
   // Hero 3D scene, loaded after first paint.
@@ -89,7 +88,9 @@ export function renderHome(root) {
   let disposed = false;
   const heroEl = root.querySelector('[data-hero]');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  import('../scene/stage.js').then(({ Stage }) => {
+  // Start the 3D hero once the page is idle, so it never delays first paint.
+  const whenIdle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 300));
+  whenIdle(() => import('../scene/stage.js').then(({ Stage }) => {
     if (disposed) return;
     try {
       stage = new Stage(heroEl, { interactive: false, autoRotate: !reduceMotion });
@@ -104,7 +105,7 @@ export function renderHome(root) {
     } catch {
       heroEl.classList.add('no-webgl');
     }
-  });
+  }));
 
   return () => { disposed = true; sketch?.stop(); stage?.dispose(); };
 }
