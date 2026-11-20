@@ -53,7 +53,7 @@ const DRIVERS = {
   dashboard: ['sonar:dist'],
 };
 
-const LONG = { 'traffic-light': null, buzzer: 2600, servo: 2200 };
+const LONG = { 'traffic-light': null, buzzer: 2600, servo: 2200, 'web-led': null };
 
 for (const lesson of LESSONS) {
   if (LONG[lesson.id] === null) continue; // too slow in real time; checked by transpile test
@@ -143,8 +143,8 @@ test('errors carry the sketch line number', async () => {
   const syntax = await serialOf('void setup() {\n  int x = 1;\n  Serial.println(x\n}\nvoid loop() {}');
   assert.ok(syntax.error.compile);
   assert.ok([3, 4].includes(syntax.error.line), `line ${syntax.error.line}`);
-  const wifi = await serialOf('#include <WiFi.h>\nvoid setup(){ WiFi.begin("a", "b"); } void loop(){}');
-  assert.match(wifi.error.message, /not simulated here yet/);
+  const bt = await serialOf('#include <BluetoothSerial.h>\nvoid setup(){ BluetoothSerial.begin("x"); } void loop(){}');
+  assert.match(bt.error.message, /not simulated here yet/);
 });
 
 test('interrupts fire on button edges', async () => {
@@ -161,4 +161,30 @@ test('interrupts fire on button edges', async () => {
   await new Promise((r) => setTimeout(r, 60));
   sk.stop(); await done;
   assert.equal(out.trim().split('\n').pop(), '3');
+});
+
+test('web-led goal: the phone can switch the LED', async () => {
+  const lesson = LESSONS.find((l) => l.id === 'web-led');
+  const hw = new Hardware();
+  const store = new InputStore();
+  bindCircuit(lesson.parts, hw, store);
+  const http = [];
+  const sk = new Sketch(lesson.code, { hw, onSerial: () => {}, onHttp: (h) => http.push(h) });
+  const done = sk.run();
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal((await sk.httpRequest('/')).status, 200);
+  await sk.httpRequest('/on');
+  assert.equal(hw.level(26), 1);
+  await sk.httpRequest('/off');
+  sk.stop(); await done;
+  assert.ok(lesson.goal.check({ hw, http, serial: '', changes: () => 0 }));
+});
+
+test('raw strings keep their text and the line count', () => {
+  const src = 'const char P[] = R"x(\n<a href="//x">hi</a> `${y}`\n)x";\nint z = 1;';
+  const { code } = transpile(src);
+  assert.equal(code.split('\n').length, src.split('\n').length);
+  // eslint-disable-next-line no-new-func
+  const value = new Function(`${code.replace(/^let /, 'return ').split(';')[0]};`)();
+  assert.equal(value, '\n<a href="//x">hi</a> `${y}`\n');
 });

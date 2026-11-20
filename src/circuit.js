@@ -70,7 +70,7 @@ export function controlsFor(parts) {
     if (p.type === 'touch') out.push({ id: p.id, kind: 'hold', label: 'Touch pad', hint: p.label });
     if (p.type === 'pot') out.push({ id: p.id, kind: 'range', label: 'Knob', min: 0, max: 1, step: 0.001, value: DEFAULTS.pot, format: (v) => `${Math.round(v * 100)}%` });
     if (p.type === 'ldr') out.push({ id: p.id, kind: 'range', label: 'Room light', min: 0, max: 1, step: 0.01, value: DEFAULTS.ldr, format: (v) => `${Math.round(v * 100)}%` });
-    if (p.type === 'ultrasonic') out.push({ id: p.id, kind: 'range', label: 'Obstacle distance', min: 3, max: 200, step: 1, value: DEFAULTS.ultrasonic, format: (v) => `${Math.round(v)} cm` });
+    if (p.type === 'ultrasonic') out.push({ id: p.id, kind: 'range', label: 'Obstacle distance', min: 3, max: 450, step: 1, value: DEFAULTS.ultrasonic, format: (v) => (v > 400 ? 'out of range' : `${Math.round(v)} cm`) });
   }
   return out;
 }

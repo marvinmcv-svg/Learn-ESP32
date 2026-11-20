@@ -22,8 +22,16 @@ export class Hardware {
     this.pwmSeen = new Map();  // gpio -> { min, max } duty seen
     this.ledcBits = new Map(); // gpio -> ledc resolution in bits
     this.tonesSeen = new Set();// frequencies played
+    this.log = [];             // timestamped { t, kind, gpio, v } for timing-based goals
+    this.clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
     this.servoSeen = { min: Infinity, max: -Infinity };
     this.version = 0;
+  }
+
+  /** Appends a timestamped event; the log is bounded. */
+  record(kind, gpio, v) {
+    this.log.push({ t: this.clock(), kind, gpio, v });
+    if (this.log.length > 5000) this.log.splice(0, 1000);
   }
 
   pin(gpio) {
@@ -150,19 +158,56 @@ function printf(fmt, ...args) {
  * plays tones. Call stop() to end it; run() resolves when it has ended.
  */
 export class Sketch {
-  constructor(source, { hw, onSerial = () => {}, audio = null, now = () => performance.now() }) {
+  constructor(source, { hw, onSerial = () => {}, onHttp = () => {}, audio = null, now = () => performance.now() }) {
     this.hw = hw;
     this.onSerial = onSerial;
     this.audio = audio;
-    this.now = now;
+    // Virtual clock: delay(ms) advances simulated time by exactly ms, however
+    // late the browser's timer fires; code running between delays adds its
+    // real elapsed time. millis(), timing goals and logs all use it.
+    this.realNow = now;
+    this.sim = 0;
+    this.lastReal = now();
+    this.sleeping = 0;
+    this.now = () => {
+      const r = this.realNow();
+      // During a delay, time runs smoothly up to (never past) the delay's end.
+      if (this.sleeping) return this.sleepSim + Math.min(r - this.sleepReal, this.sleepMs);
+      this.sim += r - this.lastReal;
+      this.lastReal = r;
+      return this.sim;
+    };
+    hw.clock = this.now;
     this.stopped = false;
     this.timers = new Set();
     this.wakers = new Set();
     this.yields = 0;
     this.serialIn = '';
     this.interrupts = new Map(); // gpio -> { fn, mode, last }
+    this.net = { status: 'off', ip: '192.168.1.42', ssid: '', connectAt: 0, servers: [], queue: [] };
+    this.onHttp = onHttp;
     this.source = source;
     this.compiled = transpile(source);
+  }
+
+  /**
+   * A request from the simulated phone. Resolves with { status, type, body }
+   * once the sketch's server.handleClient() answers, or a timeout/error.
+   */
+  httpRequest(url) {
+    const u = new URL(url, 'http://esp32.local');
+    const req = { path: u.pathname, query: Object.fromEntries(u.searchParams), t: this.now() };
+    if (this.net.status !== 'connected') return Promise.resolve({ status: 0, error: 'The ESP32 is not on the network yet. Did the sketch call WiFi.begin()?' });
+    if (!this.net.servers.some((sv) => sv.started)) return Promise.resolve({ status: 0, error: 'Connection refused: no web server is running. Did the sketch call server.begin()?' });
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const i = this.net.queue.indexOf(req);
+        if (i !== -1) this.net.queue.splice(i, 1);
+        resolve({ status: 0, error: 'Timed out. The sketch must call server.handleClient() often, usually at the top of loop().' });
+      }, 4000);
+      req.respond = (res) => { clearTimeout(timer); this.onHttp({ ...req, ...res }); resolve(res); };
+      this.net.queue.push(req);
+    });
   }
 
   /** Text typed into the Serial Monitor's send box. */
@@ -176,13 +221,34 @@ export class Sketch {
     for (const wake of this.wakers) wake();
     this.wakers.clear();
     for (const [gpio, p] of this.hw.pins) if (p.tone) { p.tone = 0; this.audio?.stop(gpio); }
+    for (const req of this.net.queue.splice(0)) req.respond({ status: 0, error: 'The ESP32 was stopped.' });
+    this.net.status = 'off';
   }
 
   sleep(ms) {
     if (this.stopped) throw new StopSignal();
+    const wait = Math.max(0, ms);
+    if (!this.sleeping) {
+      this.sleepSim = this.now();
+      this.sleepReal = this.realNow();
+      this.sleepMs = wait;
+    }
+    this.sleeping++;
     return new Promise((resolve, reject) => {
-      const wake = () => { this.timers.delete(t); this.wakers.delete(wake); this.stopped ? reject(new StopSignal()) : resolve(); };
-      const t = setTimeout(wake, Math.max(0, ms));
+      const wake = () => {
+        this.timers.delete(t); this.wakers.delete(wake);
+        this.sleeping--;
+        if (!this.sleeping) {
+          // A delay lasts exactly its length. A bare yield (delay 0, loop
+          // boundaries) counts its real duration, capped: the browser may be
+          // busy rendering, but a loop pass on the chip takes microseconds.
+          const real = this.realNow() - this.sleepReal;
+          this.sim = Math.max(this.sim, this.sleepSim + (wait > 0 ? wait : Math.min(real, 4)));
+          this.lastReal = this.realNow();
+        }
+        this.stopped ? reject(new StopSignal()) : resolve();
+      };
+      const t = setTimeout(wake, wait);
       this.timers.add(t);
       this.wakers.add(wake);
     });
@@ -195,13 +261,18 @@ export class Sketch {
     const write = (gpio, value) => {
       const p = hw.pin(gpio);
       const v = value ? 1 : 0;
-      if (v !== p.value || p.pwm !== null) hw.edges.set(gpio, (hw.edges.get(gpio) ?? 0) + 1);
+      if (v !== p.value || p.pwm !== null) {
+        hw.edges.set(gpio, (hw.edges.get(gpio) ?? 0) + 1);
+        hw.record('level', gpio, v);
+      }
       p.value = v; p.pwm = null; hw.version++;
     };
     const pwm = (gpio, duty) => {
       const p = hw.pin(gpio);
       p.mode = 'OUTPUT';
-      p.pwm = Math.max(0, Math.min(255, duty));
+      const next = Math.max(0, Math.min(255, duty));
+      if (next !== p.pwm) hw.record('level', gpio, next / 255);
+      p.pwm = next;
       const seen = hw.pwmSeen.get(gpio) ?? { min: Infinity, max: -Infinity };
       seen.min = Math.min(seen.min, p.pwm); seen.max = Math.max(seen.max, p.pwm);
       hw.pwmSeen.set(gpio, seen);
@@ -210,6 +281,7 @@ export class Sketch {
     const tone = (gpio, freq, duration) => {
       hw.pin(gpio).tone = freq;
       if (freq) hw.tonesSeen.add(Math.round(freq));
+      hw.record('tone', gpio, freq);
       hw.version++;
       sk.audio?.play(gpio, freq);
       if (duration) {
@@ -217,7 +289,7 @@ export class Sketch {
         sk.timers.add(t);
       }
     };
-    const noTone = (gpio) => { hw.pin(gpio).tone = 0; hw.version++; sk.audio?.stop(gpio); };
+    const noTone = (gpio) => { hw.pin(gpio).tone = 0; hw.record('tone', gpio, 0); hw.version++; sk.audio?.stop(gpio); };
     const digitalRead = (gpio) => {
       const src = hw.digital.get(gpio);
       if (src) return src() ? 1 : 0;
@@ -236,6 +308,7 @@ export class Sketch {
       write(angle) {
         this.angle = Math.max(0, Math.min(180, Number(angle)));
         hw.servoSeen.min = Math.min(hw.servoSeen.min, this.angle); hw.servoSeen.max = Math.max(hw.servoSeen.max, this.angle);
+        if (this.gpio !== null) hw.record('servo', this.gpio, this.angle);
         if (this.gpio !== null) { hw.servos.set(this.gpio, this.angle); hw.version++; } }
       read() { return Math.round(this.angle); }
     }
@@ -277,6 +350,65 @@ export class Sketch {
       parseInt: () => { const m = sk.serialIn.match(/-?\d+/); if (!m) return 0; sk.serialIn = sk.serialIn.slice(m.index + m[0].length); return Number(m[0]); },
       parseFloat: () => { const m = sk.serialIn.match(/-?\d+(\.\d+)?/); if (!m) return 0; sk.serialIn = sk.serialIn.slice(m.index + m[0].length); return Number(m[0]); },
     };
+    // ---- Wi-Fi (simulated: always joins the network after a short delay) ----
+    const net = sk.net;
+    const wifiStatus = () => {
+      if (net.status === 'connecting' && sk.now() >= net.connectAt) { net.status = 'connected'; hw.version++; }
+      return net.status === 'connected' ? 3 : net.status === 'connecting' ? 6 : 0;
+    };
+    const ipObj = (ip) => ({ toString: () => ip, valueOf: () => ip });
+    const WiFi = {
+      mode() {}, setHostname() {}, setSleep() {}, persistent() {}, disconnect() { net.status = 'off'; return true; },
+      begin(ssid = '') { net.ssid = String(ssid); net.status = 'connecting'; net.connectAt = sk.now() + 1200; return 6; },
+      status: wifiStatus,
+      isConnected: () => wifiStatus() === 3,
+      localIP: () => ipObj(wifiStatus() === 3 ? net.ip : '0.0.0.0'),
+      softAP(ssid = '') { net.ssid = String(ssid); net.status = 'connected'; net.ip = '192.168.4.1'; return true; },
+      softAPIP: () => ipObj('192.168.4.1'),
+      SSID: () => net.ssid,
+      RSSI: () => (wifiStatus() === 3 ? -52 - Math.round(Math.random() * 6) : 0),
+      macAddress: () => '24:6F:28:A1:B2:C3',
+    };
+    class WebServer {
+      constructor(port = 80) {
+        this.port = port; this.routes = []; this.notFound = null; this.started = false;
+        this.current = null; this.headers = [];
+        net.servers.push(this);
+      }
+      on(path, a, b) { this.routes.push({ path, handler: typeof a === 'function' ? a : b }); }
+      onNotFound(fn) { this.notFound = fn; }
+      begin() { this.started = true; hw.version++; }
+      stop() { this.started = false; }
+      close() { this.started = false; }
+      arg(name) { return this.current?.query[String(name)] ?? ''; }
+      hasArg(name) { return this.current ? String(name) in this.current.query : false; }
+      args() { return this.current ? Object.keys(this.current.query).length : 0; }
+      uri() { return this.current?.path ?? ''; }
+      method() { return 1; }
+      sendHeader(k, v) { this.headers.push([k, v]); }
+      send(status, type = 'text/plain', body = '') {
+        if (!this.current || this.current.answered) return;
+        this.current.answered = true;
+        const location = this.headers.find(([k]) => /^location$/i.test(k))?.[1];
+        this.current.respond({ status: Number(status), type: String(type), body: String(body), location });
+      }
+      async handleClient() {
+        if (!this.started) return;
+        const req = net.queue.shift();
+        if (!req) return;
+        this.current = req; this.headers = [];
+        const route = this.routes.find((r) => r.path === req.path);
+        try {
+          if (route) await route.handler();
+          else if (this.notFound) await this.notFound();
+          else this.send(404, 'text/plain', `Not found: ${req.path}`);
+          if (!req.answered) req.respond({ status: 500, error: 'The handler finished without calling server.send().' });
+        } finally {
+          this.current = null;
+        }
+      }
+    }
+
     const attachInterrupt = (gpio, fn, mode) => {
       sk.interrupts.set(gpio, { fn, mode, last: digitalRead(gpio) });
       if (!sk.irqTimer) {
@@ -304,7 +436,9 @@ export class Sketch {
       T0: 4, T2: 2, T3: 15, T4: 13, T5: 12, T6: 14, T7: 27, T8: 33, T9: 32,
       DEC: 10, HEX: 16, OCT: 8, BIN: 2, RISING: 'RISING', FALLING: 'FALLING', CHANGE: 'CHANGE',
       A0: 36, A3: 39, A4: 32, A5: 33, A6: 34, A7: 35, A10: 4, A12: 2, A13: 15, A14: 13, A15: 12, A16: 14, A17: 27, A18: 25, A19: 26, DAC1: 25, DAC2: 26,
-      Serial, Servo, Adafruit_SSD1306,
+      Serial, Servo, Adafruit_SSD1306, WiFi, WebServer,
+      WL_CONNECTED: 3, WL_IDLE_STATUS: 0, WL_DISCONNECTED: 6, WL_NO_SSID_AVAIL: 1, WL_CONNECT_FAILED: 4,
+      WIFI_STA: 1, WIFI_AP: 2, WIFI_AP_STA: 3, HTTP_GET: 1, HTTP_POST: 3, HTTP_ANY: 0,
       attachInterrupt, detachInterrupt: (gpio) => sk.interrupts.delete(gpio),
       digitalPinToInterrupt: (g) => g, interrupts() {}, noInterrupts() {},
       dacWrite: (gpio, v) => pwm(gpio, Math.max(0, Math.min(255, Math.trunc(v)))),
@@ -392,7 +526,7 @@ function sketchError(message, line, compile) {
   return Object.assign(new Error(line ? `${message} (line ${line})` : message), { compile, line, sketch: true });
 }
 
-const NOT_SIMULATED = /^(WiFi|WiFiClient|WiFiServer|WebServer|HTTPClient|BLEDevice|BluetoothSerial|Preferences|EEPROM|SPIFFS|LittleFS|SD|DHT|esp_deep_sleep_start|xTaskCreate|xTaskCreatePinnedToCore|Adafruit_NeoPixel|LiquidCrystal_I2C|SPI)$/;
+const NOT_SIMULATED = /^(WiFiClient|WiFiServer|HTTPClient|BLEDevice|BluetoothSerial|Preferences|EEPROM|SPIFFS|LittleFS|SD|DHT|esp_deep_sleep_start|xTaskCreate|xTaskCreatePinnedToCore|Adafruit_NeoPixel|LiquidCrystal_I2C|SPI)$/;
 
 /** Rewrites JavaScript engine messages into something a beginner can act on. */
 export function friendly(msg) {

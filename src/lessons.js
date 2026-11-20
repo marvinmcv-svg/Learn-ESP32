@@ -4,8 +4,17 @@
 // Pins are chosen to be safe on a real ESP32 DevKit: outputs avoid the strapping
 // and flash pins, and analog inputs use ADC1 (GPIO 32-39) so Wi-Fi never blocks them.
 
-const edges = (ctx, gpio) => ctx.hw.edges.get(gpio) ?? 0;
-const pwmRange = (ctx, gpio) => { const s = ctx.hw.pwmSeen.get(gpio); return s ? s.max - s.min : 0; };
+import {
+  edges, pwmRange, lastPulses, within, lineInterval, hasSOS, agreement, peaks, servoSweeps, presses,
+} from './sim/observe.js';
+
+// Challenges ask for a change to the starter code, and are checked from what
+// the simulated hardware actually does (timing, patterns, input -> output).
+const pressedSteady = (id, pin, invert = false) => (c) => {
+  const on = agreement(c, (s) => s.in[id] === true, (s) => (s.lvl[pin] > 0.5) !== invert);
+  const off = agreement(c, (s) => s.in[id] === false, (s) => (s.lvl[pin] > 0.5) === invert);
+  return on.n >= 4 && off.n >= 4 && on.ratio > 0.85 && off.ratio > 0.85;
+};
 
 export const TRACKS = [
   { id: 'first-steps', title: 'First steps', blurb: 'Talk to the chip and make light happen.' },
@@ -13,6 +22,7 @@ export const TRACKS = [
   { id: 'analog', title: 'Shades in between', blurb: 'PWM, dimming and the ADC.' },
   { id: 'motion', title: 'Sound & motion', blurb: 'Buzzers, melodies and servos.' },
   { id: 'sensors', title: 'Sensors & screens', blurb: 'Distance, touch and a tiny OLED.' },
+  { id: 'wifi', title: 'Connected', blurb: 'Wi-Fi, and a web page served by the chip itself.' },
 ];
 
 export const LESSONS = [
@@ -23,6 +33,9 @@ export const LESSONS = [
     minutes: 5,
     summary: 'Send your first message from the chip to your computer over the serial port.',
     parts: [],
+    challenges: [
+      { text: 'Print a line every 250 ms instead of every second.', check: (c) => within(lineInterval(c), 200, 320) },
+    ],
     goal: { text: 'Print at least 3 lines to the Serial Monitor.', check: (c) => c.lines >= 3 },
     body: `
 <p>Every Arduino-style program has two functions. <code>setup()</code> runs once when the board powers on or resets. <code>loop()</code> then runs again and again, forever, as fast as it can.</p>
@@ -61,6 +74,10 @@ void loop() {
     minutes: 5,
     summary: 'Use digitalWrite() to switch the on-board blue LED on GPIO 2.',
     parts: [],
+    challenges: [
+      { text: 'Blink twice as fast: 250 ms on, 250 ms off.', check: (c) => { const p = lastPulses(c, 2, 4); return p.length === 4 && p.every((x) => within(x.on, 190, 320) && within(x.off, 190, 320)); } },
+      { text: 'Heartbeat: two quick blinks, then a long pause.', check: (c) => { const p = lastPulses(c, 2, 6); const short = p.filter((x) => x.off < 400).length; const long = p.filter((x) => x.off > 800).length; return p.length === 6 && short >= 2 && long >= 2 && p.every((x) => x.on < 450); } },
+    ],
     goal: { text: 'Toggle the on-board LED (GPIO 2) at least 6 times.', check: (c) => edges(c, 2) >= 6 },
     body: `
 <p>Most ESP32 DevKit boards have a small blue LED wired to <strong>GPIO&nbsp;2</strong>. A GPIO (general-purpose input/output) pin can be an <em>output</em> that you drive <code>HIGH</code> (3.3&nbsp;V) or <code>LOW</code> (0&nbsp;V).</p>
@@ -96,6 +113,9 @@ void loop() {
     minutes: 10,
     summary: 'Wire an LED and resistor to GPIO 26 on a breadboard.',
     parts: [{ type: 'led', id: 'led', pin: 26, color: 'red', label: 'GPIO 26' }],
+    challenges: [
+      { text: 'Blink SOS in Morse code: three short, three long, three short.', check: (c) => hasSOS(c, 26) },
+    ],
     goal: { text: 'Blink the red LED on GPIO 26 at least 6 times.', check: (c) => edges(c, 26) >= 6 },
     body: `
 <p>Time to build something. An LED only lets current flow one way: its long leg (the <em>anode</em>) goes towards the GPIO pin, the short leg (the <em>cathode</em>) towards ground.</p>
@@ -133,6 +153,9 @@ void loop() {
       { type: 'led', id: 'red', pin: 26, color: 'red', label: 'GPIO 26' },
       { type: 'led', id: 'amber', pin: 27, color: 'amber', label: 'GPIO 27' },
       { type: 'led', id: 'green', pin: 14, color: 'green', label: 'GPIO 14' },
+    ],
+    challenges: [
+      { text: 'Pedestrian phase: flash the amber light 5 times quickly (under 0.5 s per flash).', check: (c) => { const p = lastPulses(c, 27, 30); let run = 0; for (const x of p) { run = x.on < 500 && x.off < 600 ? run + 1 : 0; if (run >= 4) return true; } return false; } },
     ],
     goal: {
       text: 'Cycle through all three lights at least twice.',
@@ -185,6 +208,9 @@ void loop() {
       { type: 'button', id: 'btn', pin: 19, label: 'GPIO 19' },
       { type: 'led', id: 'led', pin: 26, color: 'green', label: 'GPIO 26' },
     ],
+    challenges: [
+      { text: 'Flip the logic: LED on when the button is NOT pressed.', check: pressedSteady('btn', 26, true) },
+    ],
     goal: {
       text: 'Press the button and light the LED with it.',
       check: (c) => c.changes('btn') >= 2 && edges(c, 26) >= 2,
@@ -232,6 +258,9 @@ void loop() {
       { type: 'button', id: 'btn', pin: 19, label: 'GPIO 19' },
       { type: 'led', id: 'led', pin: 26, color: 'blue', label: 'GPIO 26' },
     ],
+    challenges: [
+      { text: 'Count the presses and print the running total over Serial.', check: (c) => { const n = presses(c, 'btn'); const nums = c.serial.match(/\d+/g); return n >= 3 && !!nums && n - Number(nums[nums.length - 1]) <= 1 && Number(nums[nums.length - 1]) >= 3; } },
+    ],
     goal: {
       text: 'Toggle the LED on and off with separate presses.',
       check: (c) => c.changes('btn') >= 4 && edges(c, 26) >= 2,
@@ -278,6 +307,9 @@ void loop() {
     minutes: 10,
     summary: 'Fake an analog voltage by switching very fast: pulse-width modulation.',
     parts: [{ type: 'led', id: 'led', pin: 26, color: 'white', label: 'GPIO 26' }],
+    challenges: [
+      { text: 'Slow the breathing: one full in-and-out cycle should take about 4 seconds.', check: (c) => { const t = peaks(c, 26); return t.length >= 2 && within(t[t.length - 1] - t[t.length - 2], 3200, 5200); } },
+    ],
     goal: { text: 'Fade the LED through most of its range.', check: (c) => pwmRange(c, 26) >= 200 },
     body: `
 <p>A digital pin is either on or off. So how do you dim an LED? You switch it on and off <strong>thousands of times per second</strong> and vary how long it stays on in each cycle. Your eye averages the flicker into brightness.</p>
@@ -312,6 +344,9 @@ void loop() {
     minutes: 10,
     summary: 'Measure a voltage with analogRead() and the 12-bit ADC.',
     parts: [{ type: 'pot', id: 'pot', pin: 34, label: 'GPIO 34' }],
+    challenges: [
+      { text: 'Draw a bar of # characters whose length follows the knob.', check: (c) => { const bars = c.serial.split('\n').slice(-30).map((l) => (l.match(/#+/) ?? [''])[0].length).filter(Boolean); return c.changes('pot') >= 3 && bars.length >= 5 && Math.max(...bars) - Math.min(...bars) >= 10; } },
+    ],
     goal: {
       text: 'Turn the knob and print at least 10 readings.',
       check: (c) => c.changes('pot') >= 3 && c.lines >= 10,
@@ -349,6 +384,9 @@ void loop() {
       { type: 'pot', id: 'pot', pin: 34, label: 'GPIO 34' },
       { type: 'led', id: 'led', pin: 26, color: 'amber', label: 'GPIO 26' },
     ],
+    challenges: [
+      { text: 'Reverse it: turning the knob right should dim the LED.', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.8, (s) => s.lvl[26] < 0.25); const lo = agreement(c, (s) => s.in.pot < 0.2, (s) => s.lvl[26] > 0.75); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.8 && lo.ratio > 0.8; } },
+    ],
     goal: {
       text: 'Sweep the LED from dim to bright with the knob.',
       check: (c) => c.changes('pot') >= 3 && pwmRange(c, 26) >= 150,
@@ -383,6 +421,9 @@ void loop() {
     parts: [
       { type: 'ldr', id: 'ldr', pin: 35, label: 'GPIO 35' },
       { type: 'led', id: 'led', pin: 26, color: 'amber', label: 'GPIO 26' },
+    ],
+    challenges: [
+      { text: 'Fade instead of switching: the darker the room, the brighter the LED.', check: (c) => { const mid = c.samples.filter((s) => within(s.lvl[26], 0.1, 0.9)).length; const dark = agreement(c, (s) => s.in.ldr < 0.3, (s) => s.lvl[26] > 0.6); const bright = agreement(c, (s) => s.in.ldr > 0.8, (s) => s.lvl[26] < 0.4); return mid >= 5 && dark.n >= 3 && bright.n >= 3 && dark.ratio > 0.8 && bright.ratio > 0.8; } },
     ],
     goal: {
       text: 'Dim the room until the light switches on, then brighten it again.',
@@ -430,6 +471,9 @@ void loop() {
     minutes: 10,
     summary: 'Make sound with tone() and store a tune in arrays.',
     parts: [{ type: 'buzzer', id: 'buzzer', pin: 25, label: 'GPIO 25' }],
+    challenges: [
+      { text: 'Write your own tune with at least 8 different notes.', check: (c) => c.hw.tonesSeen.size >= 8 },
+    ],
     goal: { text: 'Play at least 4 different notes.', check: (c) => c.hw.tonesSeen.size >= 4 },
     body: `
 <p>A <strong>passive buzzer</strong> is a tiny speaker. Feed it a square wave and it vibrates at that frequency. <code>tone(pin, frequency)</code> generates one; <code>noTone(pin)</code> stops it.</p>
@@ -470,6 +514,9 @@ void loop() {
     minutes: 10,
     summary: 'Position a hobby servo motor with the ESP32Servo library.',
     parts: [{ type: 'servo', id: 'servo', pin: 13, label: 'GPIO 13' }],
+    challenges: [
+      { text: 'Windshield wiper: sweep fast one way and at least twice as slowly back.', check: (c) => { const { up, down } = servoSweeps(c, 13); if (!up.length || !down.length) return false; const a = up[up.length - 1]; const b = down[down.length - 1]; return Math.max(a, b) >= 2 * Math.min(a, b); } },
+    ],
     goal: { text: 'Sweep the servo across at least 150°.', check: (c) => c.hw.servoSeen.max - c.hw.servoSeen.min >= 150 },
     body: `
 <p>A hobby <strong>servo</strong> has a motor, a gearbox and a position sensor in one box. You tell it an angle from 0° to 180° and it holds that angle.</p>
@@ -516,6 +563,9 @@ void loop() {
       { type: 'pot', id: 'pot', pin: 34, label: 'GPIO 34' },
       { type: 'servo', id: 'servo', pin: 13, label: 'GPIO 13' },
     ],
+    challenges: [
+      { text: 'Mirror it: knob right should turn the servo to 0°, knob left to 180°.', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.85, (s) => s.servo[13] < 40, 600); const lo = agreement(c, (s) => s.in.pot < 0.15, (s) => s.servo[13] > 140, 600); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.7 && lo.ratio > 0.7; } },
+    ],
     goal: {
       text: 'Use the knob to move the servo across at least 120°.',
       check: (c) => c.changes('pot') >= 3 && c.hw.servoSeen.max - c.hw.servoSeen.min >= 120,
@@ -555,6 +605,9 @@ void loop() {
     minutes: 12,
     summary: 'Time an ultrasonic echo with pulseIn() and turn it into centimetres.',
     parts: [{ type: 'ultrasonic', id: 'sonar', trig: 5, echo: 18, label: 'TRIG 5 · ECHO 18' }],
+    challenges: [
+      { text: 'Print "out of range" when nothing is within 4 m (slide the obstacle all the way back).', check: (c) => /out of range/i.test(c.serial) && c.samples.some((s) => s.in.sonar > 400) },
+    ],
     goal: {
       text: 'Move the obstacle and log at least 8 distance readings.',
       check: (c) => c.changes('sonar') >= 2 && c.lines >= 8,
@@ -603,6 +656,9 @@ void loop() {
       { type: 'touch', id: 'pad', pin: 4, label: 'T0 · GPIO 4' },
       { type: 'led', id: 'led', pin: 26, color: 'blue', label: 'GPIO 26' },
     ],
+    challenges: [
+      { text: 'Make the pad a toggle: each touch switches the LED, and it stays that way.', check: (c) => { const on = c.samples.filter((s) => s.in.pad === false && s.lvl[26] > 0.5).length; const off = c.samples.filter((s) => s.in.pad === false && s.lvl[26] < 0.5).length; return presses(c, 'pad') >= 2 && on >= 10 && off >= 10; } },
+    ],
     goal: {
       text: 'Touch the pad to light the LED.',
       check: (c) => c.changes('pad') >= 2 && edges(c, 26) >= 2,
@@ -639,6 +695,9 @@ void loop() {
     minutes: 12,
     summary: 'Draw text and shapes on a 128×64 SSD1306 display over I²C.',
     parts: [{ type: 'oled', id: 'oled', label: 'SDA 21 · SCL 22' }],
+    challenges: [
+      { text: 'Show a running seconds counter on the screen.', check: (c) => { const nums = c.oledTexts.map((t) => Number((t.match(/\d+/) ?? [NaN])[0])).filter((n) => !Number.isNaN(n)); const distinct = [...new Set(nums)]; return distinct.length >= 3 && distinct.slice(-3).every((n, i, a) => i === 0 || n > a[i - 1]); } },
+    ],
     goal: { text: 'Show text on the OLED screen.', check: (c) => (c.hw.oled?.textContent() ?? '').trim().length >= 3 },
     body: `
 <p>The little SSD1306 OLED has 128&nbsp;×&nbsp;64 pixels that glow on their own, no backlight. It talks <strong>I²C</strong>: just two signal wires shared by many devices. On the ESP32 the default I²C pins are <strong>SDA&nbsp;=&nbsp;21</strong> and <strong>SCL&nbsp;=&nbsp;22</strong>.</p>
@@ -683,6 +742,9 @@ void loop() {
       { type: 'ultrasonic', id: 'sonar', trig: 5, echo: 18, label: 'TRIG 5 · ECHO 18' },
       { type: 'buzzer', id: 'buzzer', pin: 25, label: 'GPIO 25' },
       { type: 'oled', id: 'oled', label: 'SDA 21 · SCL 22' },
+    ],
+    challenges: [
+      { text: 'Higher-pitched alarm: play 1500 Hz or more when closer than 10 cm.', check: (c) => [...c.hw.tonesSeen].some((f) => f >= 1500) && c.samples.some((s) => s.in.sonar < 10) },
     ],
     goal: {
       text: 'Bring the obstacle closer than 20 cm and hear the warning.',
@@ -755,6 +817,135 @@ void loop() {
     noTone(BUZZER);
   }
   delay(100);
+}
+`,
+  },
+  {
+    id: 'wifi-connect',
+    track: 'wifi',
+    title: 'Join a Wi-Fi network',
+    minutes: 10,
+    summary: 'Connect the ESP32 to Wi-Fi, wait for it to join, and print its IP address.',
+    parts: [],
+    wifi: true,
+    challenges: [
+      { text: 'Print the signal strength (WiFi.RSSI(), in dBm) every 2 seconds.', check: (c) => /-\d{2}/.test(c.serial.split('\n').slice(-3).join('\n')) && within(lineInterval(c, 3), 1700, 2400) },
+    ],
+    goal: { text: 'Connect and print the board’s IP address.', check: (c) => /\b192\.168\.\d+\.\d+\b/.test(c.serial) },
+    body: `
+<p>Wi-Fi is the reason the ESP32 exists. The radio is built into the chip, so joining a network takes a few lines.</p>
+<ol>
+<li><code>WiFi.begin(ssid, password)</code> starts connecting and returns immediately.</li>
+<li>Connecting takes a moment, so we wait in a loop until <code>WiFi.status()</code> is <code>WL_CONNECTED</code>, printing a dot every half second.</li>
+<li>The router then gives the board an address. <code>WiFi.localIP()</code> tells you what it is.</li>
+</ol>
+<p>In this simulator the network always accepts the board after about a second. On real hardware a wrong password simply never connects, so it is good practice to give up after a timeout.</p>
+<div class="tip"><strong>2.4 GHz only:</strong> the original ESP32 cannot see 5 GHz networks. If your board will not connect at home, check that your router has a 2.4 GHz band turned on.</div>
+<div class="tip"><strong>Keep secrets out of shared code:</strong> real sketches often put the SSID and password in a separate <code>secrets.h</code> file that is never committed or shared.</div>
+<h2>Try this</h2>
+<p>Add a 10-second timeout: if the board has not connected by then, print <code>"Giving up"</code> and stop waiting.</p>`,
+    code: `// Lesson 18: join a Wi-Fi network
+#include <WiFi.h>
+
+const char* SSID = "BenchNet";
+const char* PASSWORD = "solder-smoke";
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, PASSWORD);
+  Serial.print("Connecting");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.print("Connected! IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+}
+`,
+  },
+  {
+    id: 'web-led',
+    track: 'wifi',
+    title: 'Control an LED from your phone',
+    minutes: 20,
+    summary: 'Run a tiny web server on the ESP32 and switch an LED from a page in your browser.',
+    parts: [{ type: 'led', id: 'led', pin: 26, color: 'green', label: 'GPIO 26' }],
+    wifi: true,
+    challenges: [
+      { text: 'Add a /toggle route that flips the LED each time it is opened.', check: (c) => c.http.filter((h) => h.path === '/toggle' && h.status >= 200 && h.status < 400).length >= 2 && edges(c, 26) >= 2 },
+      { text: 'Show the LED’s current state (ON or OFF) on the main page.', check: (c) => { const pages = c.http.filter((h) => h.path === '/' && h.status === 200).map((h) => h.body); return new Set(pages).size >= 2 && pages.some((b) => /\bON\b/.test(b)) && pages.some((b) => /\bOFF\b/.test(b)); } },
+    ],
+    goal: { text: 'Turn the LED on and off from the phone.', check: (c) => c.http.some((h) => h.path === '/on' && h.status >= 200 && h.status < 400) && c.http.some((h) => h.path === '/off' && h.status >= 200 && h.status < 400) && edges(c, 26) >= 2 },
+    body: `
+<p>Once it is on the network, the ESP32 can be a <strong>web server</strong>. Any phone or laptop on the same Wi-Fi can open its IP address in a browser and get a page that the chip builds on the spot.</p>
+<p>The <code>WebServer</code> library maps addresses to functions:</p>
+<ul>
+<li><code>server.on("/on", handleOn)</code> runs <code>handleOn()</code> when someone visits <code>/on</code>.</li>
+<li>Each handler finishes with <code>server.send(200, "text/html", page)</code>: a status code, a content type and the page itself.</li>
+<li><code>server.handleClient()</code> must be called over and over in <code>loop()</code>. It is how the sketch notices a visitor. Forget it, and every request times out.</li>
+</ul>
+<p>The page is written as a C++ <em>raw string</em>, <code>R"( … )"</code>, so the HTML can contain quotes without escaping.</p>
+<p>Press <kbd>Run</kbd>, wait for the phone to connect, then tap the buttons on the phone.</p>
+<div class="tip"><strong>Redirect after an action:</strong> after <code>/on</code> we send a <code>303</code> redirect back to <code>/</code>, so refreshing the page does not repeat the action.</div>
+<h2>Try this</h2>
+<p>Add a third button that blinks the LED five times.</p>`,
+    code: `// Lesson 19: a web server that controls an LED
+#include <WiFi.h>
+#include <WebServer.h>
+
+const int LED = 26;
+WebServer server(80);
+
+const char PAGE[] = R"html(
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width"></head>
+<body style="font-family: sans-serif; text-align: center">
+  <h1>Desk lamp</h1>
+  <p><a href="/on">Turn on</a> &middot; <a href="/off">Turn off</a></p>
+</body>
+</html>
+)html";
+
+void handleRoot() {
+  server.send(200, "text/html", PAGE);
+}
+
+void handleOn() {
+  digitalWrite(LED, HIGH);
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+void handleOff() {
+  digitalWrite(LED, LOW);
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED, OUTPUT);
+  WiFi.begin("BenchNet", "solder-smoke");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(250);
+  }
+  Serial.print("Open http://");
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleRoot);
+  server.on("/on", handleOn);
+  server.on("/off", handleOff);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
 }
 `,
   },

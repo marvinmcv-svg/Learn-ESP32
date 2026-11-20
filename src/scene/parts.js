@@ -340,7 +340,8 @@ const BUILDERS = {
       ],
       update(hw, t) {
         const cm = store.get(spec.id, 60);
-        const z = -1.6 - cm * 0.05;
+        wall.visible = cm <= 400;
+        const z = -1.6 - Math.min(cm, 250) * 0.05;
         wall.position.set(0, BB_TOP + 1.5, wall.position.z + (z - wall.position.z) * 0.3 || z);
         const e = hw.edges.get(spec.trig) ?? 0;
         if (e !== lastEdges && t > nextPing) {

@@ -12,6 +12,7 @@ function save(data) {
 let state = load();
 state.done ??= [];
 state.code ??= {};
+state.ch ??= {}; // lesson id -> completed challenge indexes
 
 const listeners = new Set();
 export const progress = {
@@ -24,9 +25,20 @@ export const progress = {
     listeners.forEach((fn) => fn());
     return true;
   },
+  isChallengeDone: (id, i) => (state.ch[id] ?? []).includes(i),
+  challengesDone: (id) => (state.ch[id] ?? []).length,
+  totalChallengesDone: () => Object.values(state.ch).reduce((n, a) => n + a.length, 0),
+  markChallenge(id, i) {
+    const list = (state.ch[id] ??= []);
+    if (list.includes(i)) return false;
+    list.push(i);
+    save(state);
+    listeners.forEach((fn) => fn());
+    return true;
+  },
   draft: (id) => state.code[id] ?? null,
   saveDraft(id, code) { state.code[id] = code; save(state); },
   clearDraft(id) { delete state.code[id]; save(state); },
-  reset() { state = { done: [], code: {} }; save(state); listeners.forEach((fn) => fn()); },
+  reset() { state = { done: [], code: {}, ch: {} }; save(state); listeners.forEach((fn) => fn()); },
   subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 };

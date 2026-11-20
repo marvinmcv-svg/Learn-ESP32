@@ -12,8 +12,9 @@ const BASE_TYPES = [
   'signed\\s+char', 'long\\s+long', 'long\\s+int', 'unsigned', 'long', 'int', 'short', 'float', 'double', 'bool',
   'boolean', 'byte', 'char', 'String', 'word', 'size_t', 'u?int(?:8|16|32|64)_t',
 ];
-const CLASSES = ['Servo', 'Adafruit_SSD1306'];
+const CLASSES = ['Servo', 'Adafruit_SSD1306', 'WebServer'];
 const BLOCKING = ['delay', 'delayMicroseconds', 'pulseIn'];
+const BLOCKING_METHODS = ['handleClient'];
 
 /** Integer types and the wrapper that gives them C overflow behaviour. */
 function intWrapper(type) {
@@ -70,8 +71,12 @@ function matching(src, open, a, b) {
 /** Pads a replacement with newlines so it spans as many lines as the original. */
 function sameLines(original, replacement) {
   const want = (original.match(/\n/g) ?? []).length;
-  const have = (replacement.replace(/\n/g, ' '));
-  return have + '\n'.repeat(want);
+  const have = (replacement.match(/\n/g) ?? []).length;
+  if (have <= want) return replacement + '\n'.repeat(want - have);
+  // More lines than the original: fold the extra ones from the end.
+  let out = replacement;
+  for (let k = have - want; k > 0; k--) out = out.replace(/\n(?![\s\S]*\n)/, ' ');
+  return out;
 }
 
 /** Applies `fn` to the code between string/char literals only. */
@@ -104,7 +109,14 @@ function paramNames(params) {
 }
 
 export function transpile(source) {
-  let src = stripComments(source).replace(/\r\n?/g, '\n');
+  // C++ raw strings R"delim(...)delim" (often used for HTML) become template
+  // literals. They are swapped out first so comment stripping cannot touch them.
+  const raws = [];
+  let src = source.replace(/\r\n?/g, '\n').replace(/\bR"([^(\s]*)\(([\s\S]*?)\)\1"/g, (m, delim, body) => {
+    raws.push(body);
+    return `__RAW${raws.length - 1}__${'\n'.repeat((body.match(/\n/g) ?? []).length)}`;
+  });
+  src = stripComments(src);
 
   // ---- Preprocessor ----
   src = src.replace(/^[ \t]*#(include|pragma|ifndef|ifdef|endif|if|else|elif|undef)\b.*$/gm, '');
@@ -225,9 +237,10 @@ export function transpile(source) {
     src = src.slice(0, i) + body + src.slice(close + 1);
   }
 
-  const declRe = new RegExp(`\\b(?:const\\s+|static\\s+|volatile\\s+)*(${TYPE})\\s*[*&]?\\s+(\\w+)(?=\\s*[=;,)])`, 'g');
-  src = src.replace(declRe, (m, type, name) => {
+  const declRe = new RegExp(`\\b(?:const\\s+|static\\s+|volatile\\s+)*(${TYPE})\\s*([*&]?)\\s*(?:const\\s+)?(\\w+)(?=\\s*[=;,)])`, 'g');
+  src = src.replace(declRe, (m, type, ptr, name) => {
     const t = type.replace(/\s+/g, ' ');
+    if (ptr === '*') return `let ${name}`; // pointers (char* strings) stay plain values
     if (t === 'char') ints.set(name, '__char');
     else if (ENUMS.includes(t)) ints.set(name, '__i32');
     else {
@@ -291,9 +304,23 @@ export function transpile(source) {
     src = src.replace(new RegExp(`(?<![\\w.])(?<!function\\s)${name}\\s*\\(`, 'g'), `await ${name}(`);
   }
 
+  for (const m of BLOCKING_METHODS) src = src.replace(new RegExp(`(\\b\\w+)\\.${m}\\s*\\(`, 'g'), `await $1.${m}(`);
+
+  // C++ lambdas: [](){ ... } and [&](args){ ... }
+  src = src.replace(/(?<![\w\])])\[[&=]?\]\s*\(([^)]*)\)\s*\{/g, (m, params) => `async (${paramNames(params).join(', ')}) => {`);
+
   // Every loop yields so the page stays responsive and Stop works
   src = injectYields(src);
   src = src.replace(/\bNULL\b/g, 'null');
+
+  // Put raw strings back as template literals. Each placeholder is followed by
+  // the raw string's own newlines, which the literal now carries itself.
+  src = src.replace(/__RAW(\d+)__(\n*)/g, (m, i, nl) => {
+    const body = raws[Number(i)];
+    const own = (body.match(/\n/g) ?? []).length;
+    const literal = body.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+    return `\`${literal}\`${nl.slice(own)}`;
+  });
 
   return { code: src, functions: [...fns] };
 }

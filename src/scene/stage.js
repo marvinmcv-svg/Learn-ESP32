@@ -27,7 +27,8 @@ function pinLocal(name) {
 }
 
 export class Stage {
-  constructor(container, { interactive = true, autoRotate = false } = {}) {
+  constructor(container, { interactive = true, autoRotate = false, rightInset = 0 } = {}) {
+    this.rightInset = rightInset; // px covered by an overlay (the phone); framing shifts left
     this.container = container;
     this.interactive = interactive;
     this.parts = [];
@@ -60,7 +61,7 @@ export class Stage {
     scene.environmentIntensity = 0.55;
     this.scene = scene;
 
-    this.hemi = new THREE.HemisphereLight(0xdfe9ff, 0x2a2622, 0.9);
+    this.hemi = new THREE.HemisphereLight(0xfff8ec, 0x5b5245, 0.9);
     scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(-6, 14, 9);
@@ -73,13 +74,21 @@ export class Stage {
     scene.add(sun);
     this.sun = sun;
 
-    // desk
-    const desk = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ color: 0x1d2a2c, roughness: 0.95 }));
+    // A green self-healing cutting mat on a paper-coloured room
+    scene.background = new THREE.Color(0xe7e1d3);
+    scene.fog = new THREE.Fog(0xe7e1d3, 38, 80);
+    const desk = new THREE.Mesh(new THREE.PlaneGeometry(46, 30), new THREE.MeshStandardMaterial({ color: 0x2f5a46, roughness: 0.92 }));
     desk.rotation.x = -Math.PI / 2;
     desk.receiveShadow = true;
     scene.add(desk);
-    const grid = new THREE.GridHelper(60, 60, 0x2c3d40, 0x243336);
-    grid.position.y = 0.002;
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(120, 48), new THREE.MeshStandardMaterial({ color: 0xd9d2c2, roughness: 1 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.02;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    const grid = new THREE.GridHelper(46, 46, 0x6f9a84, 0x4a7863);
+    grid.scale.z = 30 / 46;
+    grid.position.y = 0.003;
     scene.add(grid);
 
     this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400);
@@ -123,6 +132,14 @@ export class Stage {
     this.store = store;
     this.unsubscribe?.();
     this.unsubscribe = store.subscribe(() => this.wake());
+    // Free the previous bench's GPU resources before building a new one.
+    for (const group of [this.world, this.wires]) {
+      group.traverse((o) => {
+        o.geometry?.dispose?.();
+        const m = o.material;
+        for (const mm of Array.isArray(m) ? m : m ? [m] : []) { mm.map?.dispose?.(); mm.dispose?.(); }
+      });
+    }
     this.world.clear();
     this.wires.clear();
     for (const l of this.labelObjs ?? []) l.removeFromParent();
@@ -391,6 +408,10 @@ export class Stage {
     this.wake?.();
     const hadAspect = this.camera.aspect;
     this.camera.aspect = w / h;
+    // Keep the bench centred in the part of the view not covered by an overlay.
+    const inset = window.matchMedia('(min-width: 861px)').matches ? this.rightInset : 0;
+    if (inset) this.camera.setViewOffset(w, h, inset / 2, 0, w, h);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     if (this.home && Math.abs(hadAspect - this.camera.aspect) > 0.3) this.fit();
   }

@@ -6,7 +6,6 @@ import { LESSONS, PLAYGROUND } from './lessons.js';
 import { progress } from './progress.js';
 import { pageMeta } from './meta.js';
 import { ToneAudio } from './ui/audio.js';
-import { icon } from './ui/icons.js';
 
 const audio = new ToneAudio();
 const app = document.getElementById('app');
@@ -14,9 +13,9 @@ const main = document.getElementById('main');
 let cleanup = null;
 
 function header() {
-  const done = progress.doneCount();
+  const total = LESSONS.reduce((n, l) => n + (l.challenges?.length ?? 0), 0);
   document.getElementById('nav-progress').innerHTML =
-    `<span class="pill" title="Lessons completed">${icon('check')} ${done}/${LESSONS.length}</span>`;
+    `<span class="tally" title="Lessons passed · challenges passed"><b>${progress.doneCount()}</b>/${LESSONS.length}<span class="tally-long"> lessons · <b>${progress.totalChallengesDone()}</b>/${total} challenges</span></span>`;
 }
 
 function route() {
@@ -65,5 +64,7 @@ if (location.hash.startsWith('#/')) history.replaceState(null, '', location.hash
 
 progress.subscribe(header);
 window.addEventListener('popstate', route);
+// A share link opened while already on that page only changes the hash.
+window.addEventListener('hashchange', () => { if (location.hash.startsWith('#code=')) route(); });
 header();
 route();
