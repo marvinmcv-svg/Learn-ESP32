@@ -29,14 +29,20 @@ export async function decodeSketch(token) {
   return new TextDecoder().decode(raw);
 }
 
-/** Link to `path` that opens with `code` in the editor. */
-export async function shareUrl(path, code) {
-  return `${location.origin}${path}#code=${await encodeSketch(code)}`;
+/** Link to `path` that opens with `code` (and optionally the wiring) loaded. */
+export async function shareUrl(path, code, wires = null) {
+  const payload = wires ? JSON.stringify({ c: code, w: wires }) : code;
+  return `${location.origin}${path}#code=${await encodeSketch(payload)}`;
 }
 
-/** Shared code in the current URL, or null. */
-export async function sharedCodeFromUrl() {
+/** Shared { code, wires } in the current URL, or null. */
+export async function sharedFromUrl() {
   const m = location.hash.match(/^#code=([\w-]+)$/);
   if (!m) return null;
-  try { return await decodeSketch(m[1]); } catch { return null; }
+  let text;
+  try { text = await decodeSketch(m[1]); } catch { return null; }
+  if (text.startsWith('{"c":')) {
+    try { const o = JSON.parse(text); return { code: String(o.c), wires: Array.isArray(o.w) ? o.w : null }; } catch { /* plain code */ }
+  }
+  return { code: text, wires: null };
 }

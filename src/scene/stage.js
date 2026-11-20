@@ -6,19 +6,28 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { buildPart, BB_TOP } from './parts.js';
 import * as T from './textures.js';
+import { solutionWires } from '../wiring.js';
 
 const BOARD_L = 5.15;
 const BOARD_W = 2.8;
 const PITCH = 0.254;
 const ROW_Z = 1.27;
 const BB_W = 5.6;
+const RAIL_Z = { 'rail:gnd.b': -(5.6 / 2 - 0.2), 'rail:5v.b': -(5.6 / 2 - 0.45), 'rail:3v3.f': 5.6 / 2 - 0.45, 'rail:gnd.f': 5.6 / 2 - 0.2 };
+const WIRE_KIND = { gnd: 0x26282c, v33: 0xd42020, v5: 0xf07a12 };
+function wireKind(w) {
+  const ends = [w.a.t, w.b.t];
+  if (ends.some((t) => t.startsWith('rail:gnd') || t.startsWith('board:GND'))) return 'gnd';
+  if (ends.some((t) => t === 'rail:3v3.f' || t === 'board:3V3')) return 'v33';
+  if (ends.some((t) => t === 'rail:5v.b' || t === 'board:VIN')) return 'v5';
+  return null;
+}
 const WIRE_COLORS = [0xf59e0b, 0x22c55e, 0x3b82f6, 0xa855f7, 0xec4899, 0x14b8a6, 0xeab308, 0xf97316];
 
-// GPIO number -> board pin name
-const GPIO_NAME = (g) => `D${g}`;
 const PIN_XS = Array.from({ length: 15 }, (_, i) => 1.5 - i * PITCH - 0.25); // antenna side (+x) first
 
-function pinLocal(name) {
+function pinLocal(name, row = null) {
+  if (row === 'front') { const k = T.FRONT_ROW.indexOf(name); return k >= 0 ? new THREE.Vector3(PIN_XS[k], 0, ROW_Z) : null; }
   let i = T.BACK_ROW.indexOf(name);
   if (i >= 0) return new THREE.Vector3(PIN_XS[i], 0, -ROW_Z);
   i = T.FRONT_ROW.indexOf(name);
@@ -106,6 +115,7 @@ export class Stage {
     scene.add(this.world);
     scene.add(this.wires);
 
+    container.stage = this; // lets automated browser tests find terminal positions
     this.resize = this.resize.bind(this);
     this.frame = this.frame.bind(this);
     this.ro = new ResizeObserver(this.resize);
@@ -128,7 +138,7 @@ export class Stage {
   }
 
   /** Builds the bench for a lesson's parts list. */
-  setCircuit(parts, store) {
+  setCircuit(parts, store, wires = null) {
     this.store = store;
     this.unsubscribe?.();
     this.unsubscribe = store.subscribe(() => this.wake());
@@ -144,7 +154,8 @@ export class Stage {
     this.wires.clear();
     for (const l of this.labelObjs ?? []) l.removeFromParent();
     this.labelObjs = [];
-    this.parts = parts.map((spec) => buildPart(spec, { store }));
+    // Copies: wiring results are written into these, never into the lesson data.
+    this.parts = parts.map((spec) => buildPart({ ...spec }, { store }));
     this.ambientId = this.parts.find((p) => p.ambient)?.ambient ?? null;
 
     // Lay parts out in one or two rows to the right of the board.
@@ -177,7 +188,10 @@ export class Stage {
     this.world.add(this.buildBoard(boardX));
     for (const p of this.parts) this.world.add(p.group);
     this.world.updateMatrixWorld(true);
-    this.buildWires(boardX, bbLen, bbCenter);
+    this.layout = { boardX };
+    this.wireList = wires ?? solutionWires(parts);
+    this.drawWires();
+    this.buildHotspots();
 
     // labels
     for (const p of this.parts) {
@@ -188,6 +202,7 @@ export class Stage {
       const obj = new CSS2DObject(el);
       const box = new THREE.Box3().setFromObject(p.group);
       obj.position.set(p.group.position.x, box.max.y + 0.5, p.group.position.z);
+      obj.userData.partId = p.spec.id;
       this.world.add(obj);
       this.labelObjs.push(obj);
     }
@@ -288,18 +303,10 @@ export class Stage {
     return g;
   }
 
-  boardPin(name) {
-    const p = pinLocal(name);
+  boardPin(name, row = null) {
+    const p = pinLocal(name, row);
     if (!p) return null;
     return new THREE.Vector3(this.board.x + p.x, this.board.pcbY + 0.22, p.z);
-  }
-
-  railPoint(kind, x, z) {
-    // back side rails: gnd at -2.6, vcc at -2.35; front side: vcc 2.35, gnd 2.6
-    const side = z < 0 ? -1 : 1;
-    const isGnd = kind === 'gnd';
-    const rz = side * (BB_W / 2 - (isGnd === (side < 0) ? 0.2 : 0.45));
-    return new THREE.Vector3(x, BB_TOP, rz);
   }
 
   addWire(a, b, color, { lift = 1.2, radius = 0.045 } = {}) {
@@ -316,63 +323,192 @@ export class Stage {
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, radius, 8, false), new THREE.MeshStandardMaterial({ color, roughness: 0.45 }));
     mesh.castShadow = true;
     this.wires.add(mesh);
+    const out = [mesh];
     for (const end of [a, b]) {
       const tip = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.25, radius * 1.25, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 }));
       tip.position.copy(end).add(new THREE.Vector3(0, 0.15, 0));
       this.wires.add(tip);
+      out.push(tip);
     }
+    return out;
   }
 
   addJumper(a, b, color) {
     // short flat jumper lying on the breadboard
     const pts = [a.clone(), a.clone().add(new THREE.Vector3(0, 0.12, 0)), b.clone().add(new THREE.Vector3(0, 0.12, 0)), b.clone()];
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.1);
-    const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.035, 6, false), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
+    const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.045, 6, false), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
     mesh.castShadow = true;
     this.wires.add(mesh);
+    return [mesh];
   }
 
-  buildWires(boardX) {
+  // ---------- wires ----------
+
+  /** World position of a wire endpoint. Rails take x from the endpoint or the other end. */
+  endPos(end, other = null) {
+    const t = end.t;
+    if (t.startsWith('board:')) {
+      const id = t.slice(6);
+      if (id === 'GND.L') return this.boardPin('GND', 'back');
+      if (id === 'GND.R') return this.boardPin('GND', 'front');
+      return this.boardPin(id);
+    }
+    if (t.startsWith('rail:')) {
+      const z = RAIL_Z[t];
+      let x = end.x;
+      if (x === undefined) x = other ? (this.endPos(other)?.x ?? 0) + 0.127 : 0;
+      const half = this.bb.len / 2 - 0.3;
+      x = Math.max(this.bb.cx - half, Math.min(this.bb.cx + half, x));
+      return new THREE.Vector3(x, BB_TOP, z);
+    }
+    const [pid, term] = t.split('.');
+    const part = this.parts.find((p) => p.spec.id === pid);
+    const local = part?.terminals?.[term];
+    return local ? part.group.localToWorld(local.clone()) : null;
+  }
+
+  /** Pixels covered by overlays on each side; the bench is centred in the rest. */
+  setInsets({ left = 0, right = this.rightInset } = {}) {
+    this.leftInset = left;
+    this.rightInset = right;
+    this.resize();
+    this.wake?.();
+  }
+
+  /** Screen position (px, relative to the canvas) of a wire endpoint. */
+  screenPos(end) {
+    const p = this.endPos(end);
+    if (!p) return null;
+    p.project(this.camera);
+    const r = this.renderer.domElement.getBoundingClientRect();
+    return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+  }
+
+  setWires(wires) {
+    this.wireList = wires;
+    this.drawWires();
+    this.wake?.();
+  }
+
+  drawWires() {
+    this.wires.traverse((o) => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+    this.wires.clear();
+    if (!this.parts.length && !this.wiringOn) return;
+    const bx = this.layout.boardX;
+    // The rails are always fed from the board: GND to both GND rails, 3.3 V front, 5 V (VIN) back.
+    this.addWire(this.boardPin('GND', 'back'), new THREE.Vector3(bx + 3.6, BB_TOP, RAIL_Z['rail:gnd.b']), WIRE_KIND.gnd, { lift: 0.8 });
+    this.addWire(this.boardPin('GND', 'front'), new THREE.Vector3(bx + 3.9, BB_TOP, RAIL_Z['rail:gnd.f']), WIRE_KIND.gnd, { lift: 0.8 });
+    this.addWire(this.boardPin('3V3'), new THREE.Vector3(bx + 3.3, BB_TOP, RAIL_Z['rail:3v3.f']), WIRE_KIND.v33, { lift: 0.8 });
+    this.addWire(this.boardPin('VIN'), new THREE.Vector3(bx + 3.3, BB_TOP, RAIL_Z['rail:5v.b']), WIRE_KIND.v5, { lift: 0.8 });
+    // Parts' own cables (the servo lead)
+    for (const p of this.parts) {
+      for (const c of p.cables ?? []) {
+        this.addWire(p.group.localToWorld(c.from.clone()), p.group.localToWorld(p.terminals[c.to].clone()), c.color, { lift: 0.2, radius: 0.04 });
+      }
+    }
     let ci = 0;
-    const world = (part, v) => part.group.localToWorld(v.clone());
-    let needVcc = false;
-    let needVin = false;
-    for (const part of this.parts) {
-      for (const a of part.anchors) {
-        const end = world(part, a.at);
-        if (a.pin !== undefined) {
-          const start = this.boardPin(GPIO_NAME(a.pin));
-          if (!start) continue;
-          if (a.from) {
-            // servo-style cable: goes from the part body to the breadboard first
-            this.addWire(world(part, a.from), end, a.color ?? 0xf08c1a, { lift: 0.2, radius: 0.04 });
-          }
-          this.addWire(start, end, WIRE_COLORS[ci++ % WIRE_COLORS.length]);
-        } else if (a.rail) {
-          const rail = a.rail === 'vin' ? 'vcc' : a.rail;
-          needVcc ||= a.rail === 'vcc';
-          needVin ||= a.rail === 'vin';
-          if (a.from) this.addWire(world(part, a.from), end, a.color, { lift: 0.2, radius: 0.04 });
-          const color = rail === 'gnd' ? 0x26282c : 0xd42020;
-          const target = this.railPoint(rail, end.x + 0.127, end.z);
-          if (a.from) this.addJumper(end, target, color);
-          else this.addJumper(end, target, color);
-        }
+    (this.wireList ?? []).forEach((w, i) => {
+      const a = this.endPos(w.a, w.b);
+      const b = this.endPos(w.b, w.a);
+      if (!a || !b) return;
+      const kind = wireKind(w);
+      const color = kind ? WIRE_KIND[kind] : WIRE_COLORS[ci++ % WIRE_COLORS.length];
+      const rail = w.a.t.startsWith('rail:') || w.b.t.startsWith('rail:');
+      const meshes = rail && a.distanceTo(b) < 3.2 ? this.addJumper(a, b, color) : this.addWire(a, b, color);
+      for (const m of meshes) m.userData.wireIndex = i;
+    });
+  }
+
+  /**
+   * Pushes wiring analysis into the parts (pins, states) and, optionally,
+   * new label text per part id.
+   */
+  applyEffective(effective, labels = null) {
+    for (const p of this.parts) {
+      const e = effective.find((x) => x.id === p.spec.id);
+      if (!e) continue;
+      if (e.state !== 'no-resistor' || e.pin !== p.spec.pin) { p.spec.burnt = false; p.spec.overSince = undefined; }
+      Object.assign(p.spec, { pin: e.pin, trig: e.trig, echo: e.echo, state: e.state, to: e.to, reversed: e.reversed });
+    }
+    if (labels) {
+      for (const l of this.labelObjs ?? []) {
+        const text = labels[l.userData.partId];
+        if (text !== undefined) l.element.textContent = text;
       }
     }
-    // power the rails from the board
-    if (this.parts.length) {
-      const gnd = this.boardPin('GND');
-      this.addWire(gnd, this.railPoint('gnd', boardX + 3.6, -1), 0x26282c, { lift: 0.8 });
-      const gnd2 = gnd.clone(); gnd2.z = ROW_Z;
-      this.addWire(gnd2, this.railPoint('gnd', boardX + 3.9, 1), 0x26282c, { lift: 0.8 });
-      if (needVcc || needVin) {
-        const v3 = this.boardPin('3V3');
-        this.addWire(v3, this.railPoint('vcc', boardX + 3.3, 1), 0xd42020, { lift: 0.8 });
-        const vin = this.boardPin(needVin ? 'VIN' : 'VIN');
-        this.addWire(vin, this.railPoint('vcc', boardX + 3.3, -1), needVin ? 0xff7a1a : 0xd42020, { lift: 0.8 });
-      }
+    this.wake?.();
+  }
+
+  // ---------- wiring mode ----------
+
+  buildHotspots() {
+    this.hotspots?.removeFromParent();
+    this.hotspots = new THREE.Group();
+    this.hotspots.visible = !!this.wiringOn;
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xc2331a, transparent: true, opacity: 0.9, depthTest: false });
+    const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+    const ringGeo = new THREE.RingGeometry(0.07, 0.115, 20);
+    const hitGeo = new THREE.SphereGeometry(0.17, 8, 6);
+    const add = (id, pos) => {
+      if (!pos) return;
+      const ring = new THREE.Mesh(ringGeo, ringMat.clone());
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(pos).add(new THREE.Vector3(0, 0.03, 0));
+      ring.renderOrder = 10;
+      const hit = new THREE.Mesh(hitGeo, hitMat);
+      hit.position.copy(pos);
+      hit.userData.terminal = id;
+      hit.userData.ring = ring;
+      this.hotspots.add(ring, hit);
+    };
+    for (const name of [...T.BACK_ROW.map((n) => [n, 'back']), ...T.FRONT_ROW.map((n) => [n, 'front'])]) {
+      const [label, row] = name;
+      const id = label === 'GND' ? `board:GND.${row === 'back' ? 'L' : 'R'}` : `board:${label}`;
+      add(id, this.boardPin(label, row));
     }
+    for (const p of this.parts) {
+      for (const [term, local] of Object.entries(p.terminals ?? {})) add(`${p.spec.id}.${term}`, p.group.localToWorld(local.clone()));
+    }
+    // Rails: long pickable strips; the hit point gives the x position.
+    for (const [id, z] of Object.entries(RAIL_Z)) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(this.bb.len - 0.6, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: id.includes('gnd') ? 0x2563eb : 0xdc2626, transparent: true, opacity: 0.18, depthTest: false }));
+      strip.position.set(this.bb.cx, BB_TOP + 0.04, z);
+      strip.userData.terminal = id;
+      strip.userData.rail = true;
+      strip.renderOrder = 9;
+      this.hotspots.add(strip);
+    }
+    this.scene.add(this.hotspots);
+    // drag preview line
+    this.dragLine?.removeFromParent();
+    this.dragLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineDashedMaterial({ color: 0xc2331a, dashSize: 0.18, gapSize: 0.1, depthTest: false }));
+    this.dragLine.visible = false;
+    this.dragLine.renderOrder = 11;
+    this.scene.add(this.dragLine);
+    if (!this.tip) {
+      const el = document.createElement('div');
+      el.className = 'wire-tip';
+      this.tip = new CSS2DObject(el);
+      this.tip.visible = false;
+    }
+    this.scene.add(this.tip);
+  }
+
+  /**
+   * Turns drag-to-wire on or off. Callbacks:
+   *   connect(a, b)   two endpoints { t, x? } were joined
+   *   remove(index)   the learner clicked wire #index
+   *   label(id)       text for a terminal tooltip
+   */
+  setWiringMode(on, callbacks = {}) {
+    this.wiringOn = on;
+    this.wiringCb = callbacks;
+    if (this.hotspots) this.hotspots.visible = on;
+    this.pending = null;
+    if (this.dragLine) this.dragLine.visible = false;
+    if (this.tip) this.tip.visible = false;
+    this.wake?.();
   }
 
   fit() {
@@ -409,8 +545,9 @@ export class Stage {
     const hadAspect = this.camera.aspect;
     this.camera.aspect = w / h;
     // Keep the bench centred in the part of the view not covered by an overlay.
-    const inset = window.matchMedia('(min-width: 861px)').matches ? this.rightInset : 0;
-    if (inset) this.camera.setViewOffset(w, h, inset / 2, 0, w, h);
+    const wide = window.matchMedia('(min-width: 861px)').matches;
+    const shift = wide ? (this.rightInset - (this.leftInset ?? 0)) / 2 : 0;
+    if (shift) this.camera.setViewOffset(w, h, shift, 0, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     if (this.home && Math.abs(hadAspect - this.camera.aspect) > 0.3) this.fit();
@@ -420,17 +557,67 @@ export class Stage {
     const el = this.renderer.domElement;
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
-    const hit = (e) => {
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BB_TOP);
+    const aim = (e) => {
       const r = el.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, this.camera);
-      const targets = this.parts.flatMap((p) => (p.pick ?? []).map((m) => Object.assign(m, { userData: { part: p } })));
-      const h = ray.intersectObjects(targets, false)[0];
-      return h?.object.userData.part ?? null;
     };
-    let active = null;
+    const partHit = () => {
+      const targets = this.parts.flatMap((p) => (p.pick ?? []).map((m) => Object.assign(m, { userData: { ...m.userData, part: p } })));
+      return ray.intersectObjects(targets, false)[0]?.object.userData.part ?? null;
+    };
+    const terminalHit = () => {
+      if (!this.wiringOn || !this.hotspots) return null;
+      const hits = ray.intersectObjects(this.hotspots.children.filter((c) => c.userData.terminal), false);
+      // Prefer pin hotspots over the long rail strips when both are under the pointer.
+      const h = hits.find((x) => !x.object.userData.rail) ?? hits[0];
+      if (!h) return null;
+      const end = { t: h.object.userData.terminal };
+      if (h.object.userData.rail) end.x = Math.round(h.point.x / 0.254) * 0.254;
+      return { end, obj: h.object };
+    };
+    const wireHit = () => {
+      if (!this.wiringOn) return null;
+      const h = ray.intersectObjects(this.wires.children.filter((c) => c.userData.wireIndex !== undefined), false)[0];
+      return h ? h.object.userData.wireIndex : null;
+    };
+    const showTip = (hit) => {
+      if (!this.tip) return;
+      this.tip.visible = !!hit;
+      if (!hit) return;
+      this.tip.element.textContent = this.wiringCb?.label?.(hit.end.t) ?? hit.end.t;
+      this.tip.position.copy(hit.obj.userData.rail ? new THREE.Vector3(hit.end.x, BB_TOP, hit.obj.position.z) : hit.obj.position).add(new THREE.Vector3(0, 0.55, 0));
+    };
+    const highlight = (wireIndex) => {
+      for (const m of this.wires.children) {
+        if (m.userData.wireIndex === undefined) continue;
+        m.material.emissive?.setHex(m.userData.wireIndex === wireIndex ? 0x803020 : 0x000000);
+      }
+    };
+    const setDrag = (from, to) => {
+      if (!from) { this.dragLine.visible = false; return; }
+      const a = this.endPos(from).add(new THREE.Vector3(0, 0.2, 0));
+      this.dragLine.geometry.setFromPoints([a, to.clone().add(new THREE.Vector3(0, 0.2, 0))]);
+      this.dragLine.computeLineDistances();
+      this.dragLine.visible = true;
+    };
+
+    let active = null; // pressed part
+    let drag = null; // { from, x, y, moved }
     el.addEventListener('pointerdown', (e) => {
-      const part = hit(e);
+      aim(e);
+      const term = terminalHit();
+      if (term) {
+        drag = { from: term.end, x: e.clientX, y: e.clientY, moved: false };
+        this.controls.enabled = false;
+        try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        return;
+      }
+      const wi = wireHit();
+      if (wi !== null) { this.wiringCb?.remove?.(wi); return; }
+      if (this.pending) { this.pending = null; setDrag(null); this.wake(); }
+      const part = partHit();
       if (!part?.press) return;
       active = part;
       this.controls.enabled = false;
@@ -439,16 +626,46 @@ export class Stage {
     });
     el.addEventListener('pointermove', (e) => {
       if (active) { active.move?.({ x: e.clientX, y: e.clientY }); return; }
-      el.style.cursor = hit(e)?.press ? (hit(e).drag ? 'ew-resize' : 'pointer') : '';
+      aim(e);
+      if (drag || this.pending) {
+        if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true;
+        const p = new THREE.Vector3();
+        if (ray.ray.intersectPlane(plane, p)) setDrag((drag ?? this.pending).from, p);
+        showTip(terminalHit());
+        this.wake();
+        return;
+      }
+      const term = terminalHit();
+      showTip(term);
+      const wi = term ? null : wireHit();
+      highlight(wi);
+      if (this.wiringOn) this.wake();
+      el.style.cursor = term ? 'crosshair' : wi !== null ? 'not-allowed' : partHit()?.press ? (partHit().drag ? 'ew-resize' : 'pointer') : '';
+      el.title = wi !== null ? 'Click to remove this wire' : '';
     });
-    const end = () => {
+    const end = (e) => {
+      if (drag) {
+        aim(e);
+        const target = terminalHit();
+        const from = drag.from;
+        const moved = drag.moved;
+        drag = null;
+        this.controls.enabled = true;
+        if (target && target.end.t !== from.t) { setDrag(null); this.pending = null; this.wiringCb?.connect?.(from, target.end); }
+        else if (!moved && this.pending && this.pending.from.t !== from.t) { setDrag(null); const a = this.pending.from; this.pending = null; this.wiringCb?.connect?.(a, from); }
+        else if (!moved) { this.pending = { from }; } // click-click wiring: wait for the second terminal
+        else { setDrag(null); this.pending = null; }
+        this.wake();
+        return;
+      }
       if (!active) return;
       active.release?.();
       active = null;
       this.controls.enabled = true;
     };
     el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
+    el.addEventListener('pointercancel', () => { drag = null; this.pending = null; setDrag(null); this.controls.enabled = true; if (active) { active.release?.(); active = null; } });
+    window.addEventListener('keydown', this.onKey = (e) => { if (e.key === 'Escape' && (this.pending || drag)) { this.pending = null; drag = null; setDrag(null); this.wake(); } });
   }
 
   start() {
@@ -522,6 +739,7 @@ export class Stage {
 
   dispose() {
     this.stop();
+    if (this.onKey) window.removeEventListener('keydown', this.onKey);
     this.io.disconnect();
     this.unsubscribe?.();
     this.ro.disconnect();

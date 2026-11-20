@@ -34,7 +34,7 @@ export const LESSONS = [
     summary: 'Send your first message from the chip to your computer over the serial port.',
     parts: [],
     challenges: [
-      { text: 'Print a line every 250 ms instead of every second.', check: (c) => within(lineInterval(c), 200, 320) },
+      { text: 'Print a line every 250 ms instead of every second.', hint: 'The pause between prints is the number inside delay(). It is in milliseconds.', check: (c) => within(lineInterval(c), 200, 320) },
     ],
     goal: { text: 'Print at least 3 lines to the Serial Monitor.', check: (c) => c.lines >= 3 },
     body: `
@@ -75,8 +75,8 @@ void loop() {
     summary: 'Use digitalWrite() to switch the on-board blue LED on GPIO 2.',
     parts: [],
     challenges: [
-      { text: 'Blink twice as fast: 250 ms on, 250 ms off.', check: (c) => { const p = lastPulses(c, 2, 4); return p.length === 4 && p.every((x) => within(x.on, 190, 320) && within(x.off, 190, 320)); } },
-      { text: 'Heartbeat: two quick blinks, then a long pause.', check: (c) => { const p = lastPulses(c, 2, 6); const short = p.filter((x) => x.off < 400).length; const long = p.filter((x) => x.off > 800).length; return p.length === 6 && short >= 2 && long >= 2 && p.every((x) => x.on < 450); } },
+      { text: 'Blink twice as fast: 250 ms on, 250 ms off.', hint: 'Both delay() calls set the timing: one for on, one for off.', check: (c) => { const p = lastPulses(c, 2, 4); return p.length === 4 && p.every((x) => within(x.on, 190, 320) && within(x.off, 190, 320)); } },
+      { text: 'Heartbeat: two quick blinks, then a long pause.', hint: 'Write the pattern out in loop(): on, short off, on, then a long off. Short means about 150 ms, long about a second.', check: (c) => { const p = lastPulses(c, 2, 6); const short = p.filter((x) => x.off < 400).length; const long = p.filter((x) => x.off > 800).length; return p.length === 6 && short >= 2 && long >= 2 && p.every((x) => x.on < 450); } },
     ],
     goal: { text: 'Toggle the on-board LED (GPIO 2) at least 6 times.', check: (c) => edges(c, 2) >= 6 },
     body: `
@@ -108,23 +108,26 @@ void loop() {
   },
   {
     id: 'external-led',
+    wiring: true,
     track: 'first-steps',
     title: 'Your first circuit',
     minutes: 10,
     summary: 'Wire an LED and resistor to GPIO 26 on a breadboard.',
     parts: [{ type: 'led', id: 'led', pin: 26, color: 'red', label: 'GPIO 26' }],
     challenges: [
-      { text: 'Blink SOS in Morse code: three short, three long, three short.', check: (c) => hasSOS(c, 26) },
+      { text: 'Blink SOS in Morse code: three short, three long, three short.', hint: 'Make two helper functions, dot() and dash(), where a dash stays on about three times longer than a dot. Then call them in order.', check: (c) => hasSOS(c, 26) },
     ],
     goal: { text: 'Blink the red LED on GPIO 26 at least 6 times.', check: (c) => edges(c, 26) >= 6 },
     body: `
 <p>Time to build something. An LED only lets current flow one way: its long leg (the <em>anode</em>) goes towards the GPIO pin, the short leg (the <em>cathode</em>) towards ground.</p>
 <p>An LED by itself would draw too much current, so we put a <strong>220&nbsp;Ω resistor</strong> in series. With 3.3&nbsp;V from the pin and roughly 2&nbsp;V dropped by a red LED, that limits the current to about (3.3&nbsp;−&nbsp;2)&nbsp;/&nbsp;220&nbsp;≈&nbsp;6&nbsp;mA. Bright enough, and kind to the pin.</p>
-<h2>Wiring</h2>
-<ul>
-<li>GPIO 26 → 220&nbsp;Ω resistor → LED anode (long leg)</li>
-<li>LED cathode (short leg) → GND rail</li>
-</ul>
+<h2>Wire it yourself</h2>
+<p>This time the breadboard is empty of wires: you build the circuit. The red dots are places a wire can go.</p>
+<ol>
+<li>Drag from <strong>D26</strong> on the board to the <strong>free end of the resistor</strong>. Hover any dot to see what it is.</li>
+<li>Drag from the LED's <strong>short leg</strong> (cathode) to the blue <strong>GND rail</strong> along the front edge.</li>
+</ol>
+<p>The wiring check under the bench tells you what is wrong as you go. Try the mistakes on purpose: skip the resistor and watch what happens to the LED, or plug it in backwards.</p>
 <div class="tip"><strong>Safe pins:</strong> GPIO 6–11 are wired to the flash chip and will crash the board if you touch them. GPIO 0, 2, 12 and 15 affect boot. Pins like 25, 26, 27, 32 and 33 are good picks for outputs.</div>
 <h2>Try this</h2>
 <p>Blink <strong>SOS</strong> in Morse code: three short, three long, three short.</p>`,
@@ -145,6 +148,7 @@ void loop() {
   },
   {
     id: 'traffic-light',
+    wiring: true,
     track: 'first-steps',
     title: 'Traffic light',
     minutes: 10,
@@ -155,7 +159,7 @@ void loop() {
       { type: 'led', id: 'green', pin: 14, color: 'green', label: 'GPIO 14' },
     ],
     challenges: [
-      { text: 'Pedestrian phase: flash the amber light 5 times quickly (under 0.5 s per flash).', check: (c) => { const p = lastPulses(c, 27, 30); let run = 0; for (const x of p) { run = x.on < 500 && x.off < 600 ? run + 1 : 0; if (run >= 4) return true; } return false; } },
+      { text: 'Pedestrian phase: flash the amber light 5 times quickly (under 0.5 s per flash).', hint: 'A for loop that runs 5 times, with a short HIGH and a short LOW inside, after the red phase.', check: (c) => { const p = lastPulses(c, 27, 30); let run = 0; for (const x of p) { run = x.on < 500 && x.off < 600 ? run + 1 : 0; if (run >= 4) return true; } return false; } },
     ],
     goal: {
       text: 'Cycle through all three lights at least twice.',
@@ -200,6 +204,7 @@ void loop() {
   },
   {
     id: 'button',
+    wiring: true,
     track: 'inputs',
     title: 'Push the button',
     minutes: 10,
@@ -209,7 +214,7 @@ void loop() {
       { type: 'led', id: 'led', pin: 26, color: 'green', label: 'GPIO 26' },
     ],
     challenges: [
-      { text: 'Flip the logic: LED on when the button is NOT pressed.', check: pressedSteady('btn', 26, true) },
+      { text: 'Flip the logic: LED on when the button is NOT pressed.', hint: 'Swap HIGH and LOW in the if/else, or write the reading straight to the LED: digitalWrite(LED, state).', check: pressedSteady('btn', 26, true) },
     ],
     goal: {
       text: 'Press the button and light the LED with it.',
@@ -259,7 +264,7 @@ void loop() {
       { type: 'led', id: 'led', pin: 26, color: 'blue', label: 'GPIO 26' },
     ],
     challenges: [
-      { text: 'Count the presses and print the running total over Serial.', check: (c) => { const n = presses(c, 'btn'); const nums = c.serial.match(/\d+/g); return n >= 3 && !!nums && n - Number(nums[nums.length - 1]) <= 1 && Number(nums[nums.length - 1]) >= 3; } },
+      { text: 'Count the presses and print the running total over Serial.', hint: 'Add an int counter. Increase it in the same place where you toggle the LED (only on a fresh press), then Serial.println() it.', check: (c) => { const n = presses(c, 'btn'); const nums = c.serial.match(/\d+/g); return n >= 3 && !!nums && n - Number(nums[nums.length - 1]) <= 1 && Number(nums[nums.length - 1]) >= 3; } },
     ],
     goal: {
       text: 'Toggle the LED on and off with separate presses.',
@@ -308,7 +313,7 @@ void loop() {
     summary: 'Fake an analog voltage by switching very fast: pulse-width modulation.',
     parts: [{ type: 'led', id: 'led', pin: 26, color: 'white', label: 'GPIO 26' }],
     challenges: [
-      { text: 'Slow the breathing: one full in-and-out cycle should take about 4 seconds.', check: (c) => { const t = peaks(c, 26); return t.length >= 2 && within(t[t.length - 1] - t[t.length - 2], 3200, 5200); } },
+      { text: 'Slow the breathing: one full in-and-out cycle should take about 4 seconds.', hint: 'Each loop takes 52 steps, so one cycle is 104 × delay. For 4 seconds that is about 38 ms per step.', check: (c) => { const t = peaks(c, 26); return t.length >= 2 && within(t[t.length - 1] - t[t.length - 2], 3200, 5200); } },
     ],
     goal: { text: 'Fade the LED through most of its range.', check: (c) => pwmRange(c, 26) >= 200 },
     body: `
@@ -339,13 +344,14 @@ void loop() {
   },
   {
     id: 'potentiometer',
+    wiring: true,
     track: 'analog',
     title: 'Turn the knob (ADC)',
     minutes: 10,
     summary: 'Measure a voltage with analogRead() and the 12-bit ADC.',
     parts: [{ type: 'pot', id: 'pot', pin: 34, label: 'GPIO 34' }],
     challenges: [
-      { text: 'Draw a bar of # characters whose length follows the knob.', check: (c) => { const bars = c.serial.split('\n').slice(-30).map((l) => (l.match(/#+/) ?? [''])[0].length).filter(Boolean); return c.changes('pot') >= 3 && bars.length >= 5 && Math.max(...bars) - Math.min(...bars) >= 10; } },
+      { text: 'Draw a bar of # characters whose length follows the knob.', hint: 'map() the reading to 0–40, then use a for loop that adds "#" to a String that many times before printing it.', check: (c) => { const bars = c.serial.split('\n').slice(-30).map((l) => (l.match(/#+/) ?? [''])[0].length).filter(Boolean); return c.changes('pot') >= 3 && bars.length >= 5 && Math.max(...bars) - Math.min(...bars) >= 10; } },
     ],
     goal: {
       text: 'Turn the knob and print at least 10 readings.',
@@ -385,7 +391,7 @@ void loop() {
       { type: 'led', id: 'led', pin: 26, color: 'amber', label: 'GPIO 26' },
     ],
     challenges: [
-      { text: 'Reverse it: turning the knob right should dim the LED.', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.8, (s) => s.lvl[26] < 0.25); const lo = agreement(c, (s) => s.in.pot < 0.2, (s) => s.lvl[26] > 0.75); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.8 && lo.ratio > 0.8; } },
+      { text: 'Reverse it: turning the knob right should dim the LED.', hint: 'With 12-bit PWM the duty runs 0–4095, the same as the reading. Subtract the reading from 4095.', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.8, (s) => s.lvl[26] < 0.25); const lo = agreement(c, (s) => s.in.pot < 0.2, (s) => s.lvl[26] > 0.75); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.8 && lo.ratio > 0.8; } },
     ],
     goal: {
       text: 'Sweep the LED from dim to bright with the knob.',
@@ -423,7 +429,7 @@ void loop() {
       { type: 'led', id: 'led', pin: 26, color: 'amber', label: 'GPIO 26' },
     ],
     challenges: [
-      { text: 'Fade instead of switching: the darker the room, the brighter the LED.', check: (c) => { const mid = c.samples.filter((s) => within(s.lvl[26], 0.1, 0.9)).length; const dark = agreement(c, (s) => s.in.ldr < 0.3, (s) => s.lvl[26] > 0.6); const bright = agreement(c, (s) => s.in.ldr > 0.8, (s) => s.lvl[26] < 0.4); return mid >= 5 && dark.n >= 3 && bright.n >= 3 && dark.ratio > 0.8 && bright.ratio > 0.8; } },
+      { text: 'Fade instead of switching: the darker the room, the brighter the LED.', hint: 'Replace the on/off logic with analogWrite(LED, map(level, 0, 4095, 255, 0)). The reversed output range does the inverting.', check: (c) => { const mid = c.samples.filter((s) => within(s.lvl[26], 0.1, 0.9)).length; const dark = agreement(c, (s) => s.in.ldr < 0.3, (s) => s.lvl[26] > 0.6); const bright = agreement(c, (s) => s.in.ldr > 0.8, (s) => s.lvl[26] < 0.4); return mid >= 5 && dark.n >= 3 && bright.n >= 3 && dark.ratio > 0.8 && bright.ratio > 0.8; } },
     ],
     goal: {
       text: 'Dim the room until the light switches on, then brighten it again.',
@@ -466,13 +472,14 @@ void loop() {
   },
   {
     id: 'buzzer',
+    wiring: true,
     track: 'motion',
     title: 'Play a melody',
     minutes: 10,
     summary: 'Make sound with tone() and store a tune in arrays.',
     parts: [{ type: 'buzzer', id: 'buzzer', pin: 25, label: 'GPIO 25' }],
     challenges: [
-      { text: 'Write your own tune with at least 8 different notes.', check: (c) => c.hw.tonesSeen.size >= 8 },
+      { text: 'Write your own tune with at least 8 different notes.', hint: 'Extend both arrays and change NOTES to match. The table in the lesson lists the frequencies of a full octave.', check: (c) => c.hw.tonesSeen.size >= 8 },
     ],
     goal: { text: 'Play at least 4 different notes.', check: (c) => c.hw.tonesSeen.size >= 4 },
     body: `
@@ -509,13 +516,14 @@ void loop() {
   },
   {
     id: 'servo',
+    wiring: true,
     track: 'motion',
     title: 'Sweep a servo',
     minutes: 10,
     summary: 'Position a hobby servo motor with the ESP32Servo library.',
     parts: [{ type: 'servo', id: 'servo', pin: 13, label: 'GPIO 13' }],
     challenges: [
-      { text: 'Windshield wiper: sweep fast one way and at least twice as slowly back.', check: (c) => { const { up, down } = servoSweeps(c, 13); if (!up.length || !down.length) return false; const a = up[up.length - 1]; const b = down[down.length - 1]; return Math.max(a, b) >= 2 * Math.min(a, b); } },
+      { text: 'Windshield wiper: sweep fast one way and at least twice as slowly back.', hint: 'Use a bigger step (like += 10) in the first for loop and a smaller one (like -= 2) in the second.', check: (c) => { const { up, down } = servoSweeps(c, 13); if (!up.length || !down.length) return false; const a = up[up.length - 1]; const b = down[down.length - 1]; return Math.max(a, b) >= 2 * Math.min(a, b); } },
     ],
     goal: { text: 'Sweep the servo across at least 150°.', check: (c) => c.hw.servoSeen.max - c.hw.servoSeen.min >= 150 },
     body: `
@@ -564,7 +572,7 @@ void loop() {
       { type: 'servo', id: 'servo', pin: 13, label: 'GPIO 13' },
     ],
     challenges: [
-      { text: 'Mirror it: knob right should turn the servo to 0°, knob left to 180°.', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.85, (s) => s.servo[13] < 40, 600); const lo = agreement(c, (s) => s.in.pot < 0.15, (s) => s.servo[13] > 140, 600); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.7 && lo.ratio > 0.7; } },
+      { text: 'Mirror it: knob right should turn the servo to 0°, knob left to 180°.', hint: 'Swap the last two arguments of map(): map(smooth, 0, 4095, 180, 0).', check: (c) => { const hi = agreement(c, (s) => s.in.pot > 0.85, (s) => s.servo[13] < 40, 600); const lo = agreement(c, (s) => s.in.pot < 0.15, (s) => s.servo[13] > 140, 600); return hi.n >= 3 && lo.n >= 3 && hi.ratio > 0.7 && lo.ratio > 0.7; } },
     ],
     goal: {
       text: 'Use the knob to move the servo across at least 120°.',
@@ -606,7 +614,7 @@ void loop() {
     summary: 'Time an ultrasonic echo with pulseIn() and turn it into centimetres.',
     parts: [{ type: 'ultrasonic', id: 'sonar', trig: 5, echo: 18, label: 'TRIG 5 · ECHO 18' }],
     challenges: [
-      { text: 'Print "out of range" when nothing is within 4 m (slide the obstacle all the way back).', check: (c) => /out of range/i.test(c.serial) && c.samples.some((s) => s.in.sonar > 400) },
+      { text: 'Print "out of range" when nothing is within 4 m (slide the obstacle all the way back).', hint: 'pulseIn() returns 0 when it times out. Check for that with an if before calculating centimetres.', check: (c) => /out of range/i.test(c.serial) && c.samples.some((s) => s.in.sonar > 400) },
     ],
     goal: {
       text: 'Move the obstacle and log at least 8 distance readings.',
@@ -657,7 +665,7 @@ void loop() {
       { type: 'led', id: 'led', pin: 26, color: 'blue', label: 'GPIO 26' },
     ],
     challenges: [
-      { text: 'Make the pad a toggle: each touch switches the LED, and it stays that way.', check: (c) => { const on = c.samples.filter((s) => s.in.pad === false && s.lvl[26] > 0.5).length; const off = c.samples.filter((s) => s.in.pad === false && s.lvl[26] < 0.5).length; return presses(c, 'pad') >= 2 && on >= 10 && off >= 10; } },
+      { text: 'Make the pad a toggle: each touch switches the LED, and it stays that way.', hint: 'Remember whether the pad was touched last time. Only flip the LED when it is touched now but was not before, like the debounce lesson.', check: (c) => { const on = c.samples.filter((s) => s.in.pad === false && s.lvl[26] > 0.5).length; const off = c.samples.filter((s) => s.in.pad === false && s.lvl[26] < 0.5).length; return presses(c, 'pad') >= 2 && on >= 10 && off >= 10; } },
     ],
     goal: {
       text: 'Touch the pad to light the LED.',
@@ -690,13 +698,14 @@ void loop() {
   },
   {
     id: 'oled',
+    wiring: true,
     track: 'sensors',
     title: 'Hello, OLED',
     minutes: 12,
     summary: 'Draw text and shapes on a 128×64 SSD1306 display over I²C.',
     parts: [{ type: 'oled', id: 'oled', label: 'SDA 21 · SCL 22' }],
     challenges: [
-      { text: 'Show a running seconds counter on the screen.', check: (c) => { const nums = c.oledTexts.map((t) => Number((t.match(/\d+/) ?? [NaN])[0])).filter((n) => !Number.isNaN(n)); const distinct = [...new Set(nums)]; return distinct.length >= 3 && distinct.slice(-3).every((n, i, a) => i === 0 || n > a[i - 1]); } },
+      { text: 'Show a running seconds counter on the screen.', hint: 'Move the drawing into loop(): clearDisplay(), print(millis() / 1000), display(), then a short delay.', check: (c) => { const nums = c.oledTexts.map((t) => Number((t.match(/\d+/) ?? [NaN])[0])).filter((n) => !Number.isNaN(n)); const distinct = [...new Set(nums)]; return distinct.length >= 3 && distinct.slice(-3).every((n, i, a) => i === 0 || n > a[i - 1]); } },
     ],
     goal: { text: 'Show text on the OLED screen.', check: (c) => (c.hw.oled?.textContent() ?? '').trim().length >= 3 },
     body: `
@@ -744,7 +753,7 @@ void loop() {
       { type: 'oled', id: 'oled', label: 'SDA 21 · SCL 22' },
     ],
     challenges: [
-      { text: 'Higher-pitched alarm: play 1500 Hz or more when closer than 10 cm.', check: (c) => [...c.hw.tonesSeen].some((f) => f >= 1500) && c.samples.some((s) => s.in.sonar < 10) },
+      { text: 'Higher-pitched alarm: play 1500 Hz or more when closer than 10 cm.', hint: 'Find the tone(BUZZER, 880) inside the cm < 10 branch and raise the frequency.', check: (c) => [...c.hw.tonesSeen].some((f) => f >= 1500) && c.samples.some((s) => s.in.sonar < 10) },
     ],
     goal: {
       text: 'Bring the obstacle closer than 20 cm and hear the warning.',
@@ -829,7 +838,7 @@ void loop() {
     parts: [],
     wifi: true,
     challenges: [
-      { text: 'Print the signal strength (WiFi.RSSI(), in dBm) every 2 seconds.', check: (c) => /-\d{2}/.test(c.serial.split('\n').slice(-3).join('\n')) && within(lineInterval(c, 3), 1700, 2400) },
+      { text: 'Print the signal strength (WiFi.RSSI(), in dBm) every 2 seconds.', hint: 'loop() is empty. Print WiFi.RSSI() there, followed by delay(2000).', check: (c) => /-\d{2}/.test(c.serial.split('\n').slice(-3).join('\n')) && within(lineInterval(c, 3), 1700, 2400) },
     ],
     goal: { text: 'Connect and print the board’s IP address.', check: (c) => /\b192\.168\.\d+\.\d+\b/.test(c.serial) },
     body: `
@@ -877,8 +886,8 @@ void loop() {
     parts: [{ type: 'led', id: 'led', pin: 26, color: 'green', label: 'GPIO 26' }],
     wifi: true,
     challenges: [
-      { text: 'Add a /toggle route that flips the LED each time it is opened.', check: (c) => c.http.filter((h) => h.path === '/toggle' && h.status >= 200 && h.status < 400).length >= 2 && edges(c, 26) >= 2 },
-      { text: 'Show the LED’s current state (ON or OFF) on the main page.', check: (c) => { const pages = c.http.filter((h) => h.path === '/' && h.status === 200).map((h) => h.body); return new Set(pages).size >= 2 && pages.some((b) => /\bON\b/.test(b)) && pages.some((b) => /\bOFF\b/.test(b)); } },
+      { text: 'Add a /toggle route that flips the LED each time it is opened.', hint: 'Keep a bool for the LED state. Register server.on("/toggle", handleToggle) and in the handler flip the bool, write it to the LED and send a response.', check: (c) => c.http.filter((h) => h.path === '/toggle' && h.status >= 200 && h.status < 400).length >= 2 && edges(c, 26) >= 2 },
+      { text: 'Show the LED’s current state (ON or OFF) on the main page.', hint: 'Build the page as a String in handleRoot(): add "ON" or "OFF" with a ternary, then send that String instead of PAGE.', check: (c) => { const pages = c.http.filter((h) => h.path === '/' && h.status === 200).map((h) => h.body); return new Set(pages).size >= 2 && pages.some((b) => /\bON\b/.test(b)) && pages.some((b) => /\bOFF\b/.test(b)); } },
     ],
     goal: { text: 'Turn the LED on and off from the phone.', check: (c) => c.http.some((h) => h.path === '/on' && h.status >= 200 && h.status < 400) && c.http.some((h) => h.path === '/off' && h.status >= 200 && h.status < 400) && edges(c, 26) >= 2 },
     body: `

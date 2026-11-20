@@ -10,7 +10,17 @@ on a 3D breadboard.
   actually do (timing, Morse patterns, input -> output). Every challenge has a reference
   solution in `tests/challenges.test.js`, and the starter code is proven not to pass it.
 - **Simulated Wi-Fi and `WebServer`**, with a pretend phone that browses the sketch's pages.
-- **Share links**: the sketch is compressed into the URL fragment, so no backend is needed.
+- **Share links**: the sketch (and your wiring) is compressed into the URL fragment, so no
+  backend is needed.
+- **Wire it yourself**: drag wires between board pins, power rails and part legs in 3D (or
+  use the keyboard-accessible form). A netlist analysis explains mistakes in plain words
+  (missing resistor, reversed LED, input-only pins, ADC2 with Wi-Fi, shorts, 5 V signals,
+  swapped SDA/SCL), and the simulation follows the actual wiring: a reversed LED stays dark,
+  one without its resistor burns out.
+- **Instruments**: serial monitor with input, a serial plotter and a logic analyzer with
+  frequency and duty-cycle readouts.
+- **Build it for real**: parts list, wiring table, library list, IDE steps and `.ino` download
+  per lesson. Progress can be exported and imported as a backup file.
 - **Playground** with every part wired up.
 - **Interactive pinout** for the 30-pin ESP32 DevKit.
 
@@ -35,6 +45,8 @@ npm run build    # production build in dist/
   so timing goals pass even when a slow device fires timers late.
 - `src/sim/observe.js` records what a running sketch does and holds the analysis helpers
   goals and challenges use.
+- `src/wiring.js` models terminals and nets and produces the effective pins and diagnostics;
+  `tests/wiring.test.js` checks every lesson's reference wiring and the common mistakes.
 - `src/circuit.js` connects breadboard parts to pins; `src/scene/` renders them with three.js.
 - `src/lessons.js` holds all lesson content, starter code, parts and goals.
 - `scripts/prerender.mjs` runs after `vite build` and writes a static, indexable HTML page per

@@ -26,40 +26,71 @@ export class InputStore {
   subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
 }
 
-/** Registers each part's signal source on the hardware model. */
+const NO_PULLS = new Set([34, 35, 36, 39]); // input-only pins have no internal pull resistors
+const floating = () => (Math.random() < 0.5 ? 1 : 0);
+
+/**
+ * Registers each part's signal source on the hardware model. Parts may carry
+ * the results of wiring analysis (pin, state, to, reversed); unwired parts
+ * contribute nothing, and miswired inputs float the way real ones do.
+ */
 export function bindCircuit(parts, hw, store) {
   for (const part of parts) {
     const { id } = part;
+    const open = part.state === 'open';
     switch (part.type) {
       case 'button':
+        if (part.pin === null || part.pin === undefined || open) break;
         hw.digital.set(part.pin, () => {
-          if (store.get(id, DEFAULTS.button)) return 0;            // pressed: shorted to GND
+          const toVcc = part.to === 'vcc';
+          if (store.get(id, DEFAULTS.button)) return toVcc ? 1 : 0;
           const mode = hw.pin(part.pin).mode;
+          if (NO_PULLS.has(part.pin)) return floating();
           if (mode === 'INPUT_PULLUP') return 1;
-          return Math.random() < 0.5 ? 1 : 0;                       // floating input
+          if (mode === 'INPUT_PULLDOWN') return 0;
+          return floating();
         });
         break;
       case 'pot':
-        hw.analog.set(part.pin, () => store.get(id, DEFAULTS.pot) * 4095 + (Math.random() - 0.5) * 6);
+        if (part.pin === null || part.pin === undefined) break;
+        hw.analog.set(part.pin, () => {
+          if (open) return Math.random() * 4095; // floating input picks up noise
+          const v = store.get(id, DEFAULTS.pot);
+          return (part.reversed ? 1 - v : v) * 4095 + (Math.random() - 0.5) * 6;
+        });
         break;
       case 'ldr':
+        if (part.pin === null || part.pin === undefined) break;
         // Voltage divider: 3.3 V -> LDR -> pin -> 10k -> GND. More light, higher reading.
         hw.analog.set(part.pin, () => {
+          if (open) return Math.random() * 4095;
           const light = store.get(id, DEFAULTS.ldr);
           const rLdr = 200 + 60000 * (1 - light) ** 2; // ohms, rough photoresistor curve
           return (10000 / (10000 + rLdr)) * 4095 + (Math.random() - 0.5) * 30;
         });
         break;
       case 'touch':
+        if (part.pin === null || part.pin === undefined || open) break;
         hw.touch.set(part.pin, () => store.get(id, DEFAULTS.touch));
         break;
       case 'ultrasonic':
+        if (part.echo === null || part.echo === undefined || open) break;
         hw.echo.set(part.echo, () => store.get(id, DEFAULTS.ultrasonic));
         break;
       default:
         break;
     }
   }
+}
+
+/** Re-binds after the wiring changed while a sketch may be running. */
+export function rebindCircuit(parts, hw, store) {
+  hw.digital.clear();
+  hw.analog.clear();
+  hw.touch.clear();
+  hw.echo.clear();
+  bindCircuit(parts, hw, store);
+  hw.version++;
 }
 
 /** On-screen controls a lesson needs, derived from its parts. */

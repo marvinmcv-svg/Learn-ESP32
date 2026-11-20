@@ -1,4 +1,4 @@
-// Procedural 3D models of the parts, each with signal anchors for wiring and
+// Procedural 3D models of the parts, each with named terminals for wiring and
 // an update(hw, inputs, t) hook that animates it from simulated pin state.
 import * as THREE from 'three';
 import * as T from './textures.js';
@@ -64,7 +64,11 @@ function resistor(bands, length = 0.75) {
   return g;
 }
 
-/** Every builder returns { group, width, anchors, pick?, update? }. Anchor = { pin|rail, at: Vector3 (local) }. */
+/**
+ * Every builder returns { group, width, terminals, cables?, pick?, update? }.
+ * terminals: { id: Vector3 (local) } using the ids from src/wiring.js.
+ * update() reads spec.pin / spec.state, which the wiring analysis keeps current.
+ */
 const BUILDERS = {
   led(spec) {
     const g = new THREE.Group();
@@ -84,11 +88,33 @@ const BUILDERS = {
     const light = new THREE.PointLight(color, 0, 6, 2);
     light.position.y = BB_TOP + 1.1;
     g.add(light);
+    const smoke = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x777066, transparent: true, depthWrite: false, opacity: 0 }));
+    smoke.visible = false;
+    g.add(smoke);
+    let smokeAt = null;
     return {
       group: g, width: 1.9,
-      anchors: [{ pin: spec.pin, at: new THREE.Vector3(-1.27, BB_TOP, 0) }, { rail: 'gnd', at: new THREE.Vector3(0.38, BB_TOP, 0) }],
-      update(hw) {
-        const v = hw.level(spec.pin);
+      terminals: { r: new THREE.Vector3(-1.385, BB_TOP, 0.508), a: new THREE.Vector3(-0.127, BB_TOP, 0.508), k: new THREE.Vector3(0.127, BB_TOP, 0.508) },
+      update(hw, t) {
+        // Wiring decides what the LED sees: reversed or open never lights,
+        // 3.3 V straight in is always on, and no resistor burns it out.
+        const state = spec.state ?? 'ok';
+        let v = state === 'always' ? 1 : (state === 'ok' || state === 'no-resistor') && spec.pin !== null && spec.pin !== undefined ? hw.level(spec.pin) : 0;
+        if (state === 'no-resistor' && v > 0.5 && !spec.burnt) {
+          spec.overSince ??= t;
+          v = Math.min(1.6, v * 1.6); // far too bright
+          if (t - spec.overSince > 0.8) { spec.burnt = true; smokeAt = t; }
+        } else if (state !== 'no-resistor') { spec.overSince = undefined; }
+        if (spec.burnt) v = 0;
+        lens.color.setHex(spec.burnt ? 0x3a3530 : color);
+        lens.emissive.setHex(spec.burnt ? 0x000000 : color);
+        smoke.visible = smokeAt !== null && t - smokeAt < 2.2;
+        if (smoke.visible) {
+          const k = (t - smokeAt) / 2.2;
+          smoke.position.y = BB_TOP + 1.1 + k * 2.2;
+          smoke.material.opacity = 0.65 * (1 - k);
+          smoke.scale.setScalar(0.6 + k * 2);
+        }
         lens.emissiveIntensity = v * 2.6;
         halo.material.opacity = Math.min(1, v * 1.1);
         halo.scale.setScalar(1.2 + v * 1.6);
@@ -110,7 +136,7 @@ const BUILDERS = {
     for (const [x, z] of [[-0.5, -0.38], [0.5, -0.38], [-0.5, 0.38], [0.5, 0.38]]) g.add(pinLeg(x, z, 0.3));
     return {
       group: g, width: 2.0,
-      anchors: [{ pin: spec.pin, at: new THREE.Vector3(-0.5, BB_TOP, -0.76) }, { rail: 'gnd', at: new THREE.Vector3(0.5, BB_TOP, 0.76) }],
+      terminals: { a: new THREE.Vector3(-0.5, BB_TOP, -0.76), b: new THREE.Vector3(0.5, BB_TOP, 0.76) },
       pick: [cap, base, plate],
       press: () => store.set(spec.id, true),
       release: () => store.set(spec.id, false),
@@ -143,11 +169,7 @@ const BUILDERS = {
     let dragStart = null;
     return {
       group: g, width: 2.0,
-      anchors: [
-        { pin: spec.pin, at: new THREE.Vector3(0, BB_TOP, 0.76) },
-        { rail: 'gnd', at: new THREE.Vector3(-0.254, BB_TOP, 0.76) },
-        { rail: 'vcc', at: new THREE.Vector3(0.254, BB_TOP, 0.76) },
-      ],
+      terminals: { g: new THREE.Vector3(-0.254, BB_TOP, 0.76), w: new THREE.Vector3(0, BB_TOP, 0.76), v: new THREE.Vector3(0.254, BB_TOP, 0.76) },
       pick: [knob, body],
       drag: true,
       press: (p) => { dragStart = { x: p.x, v: store.get(spec.id, 0.5) }; },
@@ -176,7 +198,7 @@ const BUILDERS = {
     g.add(r);
     return {
       group: g, width: 1.6,
-      anchors: [{ pin: spec.pin, at: new THREE.Vector3(-0.127, BB_TOP, -0.5) }, { rail: 'vcc', at: new THREE.Vector3(0.127, BB_TOP, -0.5) }, { rail: 'gnd', at: new THREE.Vector3(0.4, BB_TOP, 1.25) }],
+      terminals: { o: new THREE.Vector3(-0.127, BB_TOP, -0.5), v: new THREE.Vector3(0.127, BB_TOP, -0.5), g: new THREE.Vector3(0.4, BB_TOP, 1.25) },
       ambient: spec.id,
     };
   },
@@ -193,7 +215,7 @@ const BUILDERS = {
     g.add(ring);
     return {
       group: g, width: 2.0,
-      anchors: [{ pin: spec.pin, at: new THREE.Vector3(-0.6, BB_TOP + 0.08, -0.3) }],
+      terminals: { pad: new THREE.Vector3(-0.6, BB_TOP + 0.08, -0.3) },
       pick: [pad],
       press: () => store.set(spec.id, true),
       release: () => store.set(spec.id, false),
@@ -225,7 +247,7 @@ const BUILDERS = {
     }
     return {
       group: g, width: 2.0,
-      anchors: [{ pin: spec.pin, at: new THREE.Vector3(-0.254, BB_TOP, -0.76) }, { rail: 'gnd', at: new THREE.Vector3(0.254, BB_TOP, 0.76) }],
+      terminals: { p: new THREE.Vector3(-0.254, BB_TOP, -0.76), n: new THREE.Vector3(0.254, BB_TOP, 0.76) },
       update(hw, t) {
         const f = hw.toneOf(spec.pin);
         rings.forEach((r, i) => {
@@ -274,13 +296,15 @@ const BUILDERS = {
     const cableEnd = new THREE.Vector3(1.6, BB_TOP, 0.9);
     return {
       group: g, width: 3.8, back: true,
-      anchors: [
-        { pin: spec.pin, at: cableEnd.clone().add(new THREE.Vector3(0, 0, 0)), from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.3), color: 0xf08c1a },
-        { rail: 'vcc', at: cableEnd.clone().add(new THREE.Vector3(0.254, 0, 0)), from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.2), color: 0xd42020 },
-        { rail: 'gnd', at: cableEnd.clone().add(new THREE.Vector3(0.508, 0, 0)), from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.1), color: 0x5a3a20 },
+      terminals: { s: cableEnd.clone(), v: cableEnd.clone().add(new THREE.Vector3(0.254, 0, 0)), g: cableEnd.clone().add(new THREE.Vector3(0.508, 0, 0)) },
+      // the servo's own three-wire cable, from its body to the breadboard
+      cables: [
+        { from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.3), to: 's', color: 0xf08c1a },
+        { from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.2), to: 'v', color: 0xd42020 },
+        { from: new THREE.Vector3(1.15, BB_TOP + 0.7, 0.1), to: 'g', color: 0x5a3a20 },
       ],
       update(hw) {
-        const angle = hw.servos.get(spec.pin);
+        const angle = spec.state === 'open' ? undefined : hw.servos.get(spec.pin);
         if (angle === undefined) return;
         const target = THREE.MathUtils.degToRad(angle - 90) - Math.PI / 2;
         horn.rotation.y += (target - horn.rotation.y) * 0.25;
@@ -332,12 +356,7 @@ const BUILDERS = {
     let nextPing = 0;
     return {
       group: g, width: 5.2, back: true,
-      anchors: [
-        { rail: 'vin', at: new THREE.Vector3(-0.381, BB_TOP, 0.5) },
-        { pin: spec.trig, at: new THREE.Vector3(-0.127, BB_TOP, 0.5) },
-        { pin: spec.echo, at: new THREE.Vector3(0.127, BB_TOP, 0.75) },
-        { rail: 'gnd', at: new THREE.Vector3(0.381, BB_TOP, 0.5) },
-      ],
+      terminals: { vcc: new THREE.Vector3(-0.381, BB_TOP, 0.5), trig: new THREE.Vector3(-0.127, BB_TOP, 0.5), echo: new THREE.Vector3(0.127, BB_TOP, 0.75), gnd: new THREE.Vector3(0.381, BB_TOP, 0.5) },
       update(hw, t) {
         const cm = store.get(spec.id, 60);
         wall.visible = cm <= 400;
@@ -385,14 +404,9 @@ const BUILDERS = {
     let revision = -1;
     return {
       group: g, width: 3.4, back: true,
-      anchors: [
-        { rail: 'gnd', at: new THREE.Vector3(-0.381, BB_TOP, 0.5) },
-        { rail: 'vcc', at: new THREE.Vector3(-0.127, BB_TOP, 0.5) },
-        { pin: 22, at: new THREE.Vector3(0.127, BB_TOP, 0.5) },
-        { pin: 21, at: new THREE.Vector3(0.381, BB_TOP, 0.75) },
-      ],
+      terminals: { gnd: new THREE.Vector3(-0.381, BB_TOP, 0.5), vcc: new THREE.Vector3(-0.127, BB_TOP, 0.5), scl: new THREE.Vector3(0.127, BB_TOP, 0.5), sda: new THREE.Vector3(0.381, BB_TOP, 0.75) },
       update(hw) {
-        const oled = hw.oled;
+        const oled = spec.state === 'open' ? null : hw.oled;
         if (!oled) { if (tex) { screenMat.map = null; screenMat.color.setHex(0); screenMat.needsUpdate = true; tex = null; revision = -1; } return; }
         if (!tex || tex.image !== oled.canvas) {
           tex = new THREE.CanvasTexture(oled.canvas);

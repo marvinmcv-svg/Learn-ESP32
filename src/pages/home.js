@@ -2,6 +2,8 @@ import { LESSONS, TRACKS } from '../lessons.js';
 import { progress } from '../progress.js';
 import { Hardware, Sketch } from '../sim/runtime.js';
 import { bindCircuit, InputStore } from '../circuit.js';
+import { downloadSketch } from '../realworld.js';
+import { toast } from '../ui/toast.js';
 
 const PART_NAMES = { led: 'LED', button: 'button', pot: 'potentiometer', ldr: 'light sensor', buzzer: 'buzzer', servo: 'servo', ultrasonic: 'HC-SR04', touch: 'touch pad', oled: 'OLED' };
 const LETTERS = 'ABCDEFGH';
@@ -72,7 +74,37 @@ export function renderHome(root) {
     <div><h3>Real Arduino code</h3><p>The same <code>setup()</code> and <code>loop()</code> you would flash to a board. Copy it into the Arduino IDE when you get the hardware.</p></div>
     <div><h3>Checked, not just read</h3><p>Every lesson has a goal and harder challenges. The simulator watches the pins and timing to see whether your code really does it.</p></div>
     <div><h3>Honest about hardware</h3><p>Safe pins, 3.3 V logic, ADC quirks and boot traps, so nothing surprises you on the bench. See the <a href="/pinout">pinout</a>.</p></div>
+  </section>
+
+  <section class="backup" aria-label="Your progress">
+    <p><b>Your progress lives in this browser.</b> No account needed. Clearing site data erases it, so keep a backup if it matters to you.</p>
+    <div class="backup-actions">
+      <button type="button" class="btn quiet" data-export>Export backup</button>
+      <label class="btn quiet">Import backup<input type="file" accept="application/json,.json" data-import hidden></label>
+      <button type="button" class="btn quiet" data-reset-all>Reset</button>
+    </div>
   </section>`;
+
+  root.querySelector('[data-export]').addEventListener('click', () => {
+    downloadSketch(`learn-esp32-progress-${new Date().toISOString().slice(0, 10)}.json`, progress.exportAll());
+  });
+  root.querySelector('[data-import]').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      progress.importAll(await file.text());
+      toast('Progress restored.');
+      window.dispatchEvent(new PopStateEvent('popstate')); // re-render via the router (cleans up the 3D preview)
+    } catch (err) {
+      toast(`Could not import: ${err.message}`);
+    }
+  });
+  root.querySelector('[data-reset-all]').addEventListener('click', () => {
+    if (!confirm('Erase all progress, saved code and wiring in this browser? This cannot be undone.')) return;
+    progress.reset();
+    toast('Progress reset.');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
 
   // ---- live preview: hovering a row runs that lesson's starter sketch ----
   const el = root.querySelector('[data-preview]');

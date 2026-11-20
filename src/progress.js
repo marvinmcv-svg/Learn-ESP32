@@ -12,7 +12,8 @@ function save(data) {
 let state = load();
 state.done ??= [];
 state.code ??= {};
-state.ch ??= {}; // lesson id -> completed challenge indexes
+state.ch ??= {}; // lesson id -> completed challenge indexes (and 'wiring')
+state.wires ??= {}; // lesson id -> the learner's own wires
 
 const listeners = new Set();
 export const progress = {
@@ -36,9 +37,21 @@ export const progress = {
     listeners.forEach((fn) => fn());
     return true;
   },
+  wires: (id) => state.wires[id] ?? null,
+  saveWires(id, wires) { state.wires[id] = wires; save(state); },
+  clearWires(id) { delete state.wires[id]; save(state); },
+  /** Everything, for backup/restore. */
+  exportAll: () => JSON.stringify({ app: 'learn-esp32', version: 1, saved: new Date().toISOString(), state }, null, 2),
+  importAll(text) {
+    const data = JSON.parse(text);
+    if (data?.app !== 'learn-esp32' || typeof data.state !== 'object') throw new Error('This file is not a Learn ESP32 backup.');
+    state = { done: [], code: {}, ch: {}, wires: {}, ...data.state };
+    save(state);
+    listeners.forEach((fn) => fn());
+  },
   draft: (id) => state.code[id] ?? null,
   saveDraft(id, code) { state.code[id] = code; save(state); },
   clearDraft(id) { delete state.code[id]; save(state); },
-  reset() { state = { done: [], code: {}, ch: {} }; save(state); listeners.forEach((fn) => fn()); },
+  reset() { state = { done: [], code: {}, ch: {}, wires: {} }; save(state); listeners.forEach((fn) => fn()); },
   subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 };

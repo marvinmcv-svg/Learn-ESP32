@@ -65,6 +65,8 @@ export class Editor {
   }
 
   get value() { return this.ta.value; }
+  /** Replaces the text; with save: true it also fires onChange (saving a draft). */
+  setValue(v, { save = false } = {}) { this.value = v; if (save) this.onChange(v); }
   set value(v) { this.ta.value = v; this.render(); }
 
   render() {
